@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
     let opt = Opt::parse();
     let discord_token = env::var("DISCORD_TOKEN")?;
 
-    let handler = Handler::new(opt.rate_limit, opt.channel);
+    let handler = Handler::new(opt.rate_limit, opt.reply_limit);
 
     // Make a new client using a token set by an environment variable, with our handlers
     let mut client = serenity::Client::builder(&discord_token)

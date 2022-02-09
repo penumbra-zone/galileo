@@ -7,9 +7,9 @@ pub struct Opt {
     /// Per-user rate limit (e.g. "10m" or "1day").
     #[clap(short, long, default_value = "1h", parse(try_from_str = humantime::parse_duration))]
     pub rate_limit: Duration,
-    /// Channel name in which to interact (can be specified more than once).
-    #[clap(short, long)]
-    pub channel: Vec<String>,
+    /// Maximum number of times to reply to a user informing them of the rate limit.
+    #[clap(long, default_value = "5")]
+    pub reply_limit: usize,
     /// Maximum number of addresses per message to which to dispense tokens.
     #[clap(default_value = "1")]
     pub max_addresses: usize,

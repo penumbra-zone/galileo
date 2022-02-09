@@ -16,26 +16,24 @@ use tokio::time::{Duration, Instant};
 
 use super::action::{Action, ActionQueue};
 
-#[derive(Debug, Clone, Copy)]
-pub enum Notified {
-    /// The user has been notified of the rate-limit.
-    Already,
-    /// The user has not been notified of the rate-limit.
-    NotYet,
-}
-
 pub struct Handler {
-    enabled_channels: Vec<String>,
+    /// The minimum duration between dispensing tokens to a user.
     rate_limit: Duration,
+    /// Limit of the number of times, per user, we will inform that user of their rate limit.
+    reply_limit: usize,
+    /// Regex to detect penumbra addresses.
     address_regex: Regex,
-    send_history: Arc<Mutex<VecDeque<(UserId, Instant, Notified)>>>,
+    /// History of requests we answered for token dispersal, with a timestamp and the number of
+    /// times we've told the user about the rate limit (so that eventually we can stop replying if
+    /// they keep asking).
+    send_history: Arc<Mutex<VecDeque<(UserId, Instant, usize)>>>,
 }
 
 impl Handler {
-    pub fn new(rate_limit: Duration, enabled_channels: Vec<String>) -> Self {
+    pub fn new(rate_limit: Duration, reply_limit: usize) -> Self {
         Handler {
             rate_limit,
-            enabled_channels,
+            reply_limit,
             // Match penumbra testnet addresses (any version)
             address_regex: Regex::new(r"penumbrav\dt1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{126}")
                 .unwrap(),
@@ -49,16 +47,8 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
         // Don't trigger on messages we ourselves send, or when a message is in a channel we're not
         // supposed to interact within
-        if message.author.id == ctx.cache.current_user().await.id
-            || !self.enabled_channels.contains(
-                &message
-                    .channel_id
-                    .name(&ctx)
-                    .await
-                    .unwrap_or_else(String::new),
-            )
-        {
-            tracing::trace!("detected message from invalid channel or from ourselves");
+        if message.author.id == ctx.cache.current_user().await.id {
+            tracing::trace!("detected message from ourselves");
             return;
         }
 
@@ -86,11 +76,10 @@ impl EventHandler for Handler {
             .iter_mut()
             .find(|(user, _, _)| *user == message.author.id)
             .map(|(_, last_fulfilled, notified)| {
-                (
-                    *last_fulfilled,
-                    // We set notified to `Already` to prevent replying about the rate limit again:
-                    std::mem::replace(notified, Notified::Already),
-                )
+                // Increase the notification count by one and return the previous count:
+                let old_notified = *notified;
+                *notified += 1;
+                (*last_fulfilled, old_notified)
             });
 
         let queue_message = if let Some((last_fulfilled, notified)) = rate_limited {
@@ -103,7 +92,7 @@ impl EventHandler for Handler {
             );
 
             // If we already notified the user, don't reply again
-            if let Notified::Already = notified {
+            if notified > self.reply_limit {
                 return;
             }
 
@@ -115,11 +104,10 @@ impl EventHandler for Handler {
         } else {
             // Push the user into the send history queue for rate-limiting in the future
             tracing::trace!(user = ?message.author, "pushing user into send history");
-            self.send_history.lock().unwrap().push_back((
-                message.author.id,
-                Instant::now(),
-                Notified::NotYet,
-            ));
+            self.send_history
+                .lock()
+                .unwrap()
+                .push_back((message.author.id, Instant::now(), 0));
 
             // Collect all the matches into a struct, bundled with the original message
             tracing::trace!("collecting addresses from message");
