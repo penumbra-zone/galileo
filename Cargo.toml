@@ -20,3 +20,7 @@ serenity = { version = "0.10", default-features = false, features = ["client", "
 sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "postgres", "offline" ] }
 tracing = "0.1"
 tokio = { version = "1", features = ["full"] }
+
+[patch.crates-io]
+ark-ff = { git = "https://github.com/penumbra-zone/algebra", branch = "ours" }
+ark-serialize = { git = "https://github.com/penumbra-zone/algebra", branch = "ours" }
