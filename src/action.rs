@@ -1,3 +1,4 @@
+use penumbra_crypto::Address;
 use serenity::{model::channel::Message, prelude::TypeMapKey};
 use tokio::{
     sync::mpsc,
@@ -19,16 +20,22 @@ pub enum Action {
         /// The originating message that contained these addresses.
         message: Message,
         /// The addresses matched in the originating message.
-        addresses: Vec<String>,
+        addresses: Vec<AddressOrAlmost>,
     },
     RateLimit {
         /// The originating message that resulted in this rate-limit.
         message: Message,
         /// The addresses found in the message.
-        addresses: Vec<String>,
+        addresses: Vec<AddressOrAlmost>,
         /// The last time this request was fulfilled for the user.
         last_fulfilled: Instant,
         /// The rate limit duration.
         rate_limit: Duration,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum AddressOrAlmost {
+    Address(Box<Address>),
+    Almost(String),
 }

@@ -1,9 +1,10 @@
 use std::{borrow::Borrow, sync::Arc, time::Duration};
 
+use penumbra_crypto::Address;
 use serenity::{model::channel::Message, prelude::Mentionable, CacheAndHttp};
 use tokio::{sync::mpsc, time::Instant};
 
-use super::action::Action;
+use super::action::{Action, AddressOrAlmost};
 
 pub struct Worker {
     /// Maximum number of addresses to handle per message.
@@ -53,33 +54,55 @@ impl Worker {
             .unwrap_or_else(|e| tracing::error!(error = ?e, "failed to reply"));
     }
 
-    async fn dispense(&mut self, message: impl Borrow<Message>, addresses: Vec<String>) {
+    async fn dispense(
+        &mut self,
+        message: impl Borrow<Message>,
+        mut addresses: Vec<AddressOrAlmost>,
+    ) {
         let message = message.borrow();
 
-        // Determine which addresses we are going to send to, and which we are going to report
-        // as "too many"
-        let (dispense_to_addresses, remaining_addresses) =
-            addresses.split_at(self.max_addresses_per_message);
-
         // Track addresses to which we successfully dispensed tokens
-        let mut succeeded_addresses = Vec::<&String>::new();
+        let mut succeeded_addresses = Vec::<Address>::new();
 
         // Track addresses (and associated errors) which we tried to send tokens to, but failed
-        let mut failed_addresses = Vec::<(&String, String)>::new();
+        let mut failed_addresses = Vec::<(Address, String)>::new();
 
-        for addr in dispense_to_addresses {
-            // Reply to the originating message with the address
-            tracing::info!(user_name = ?message.author.name, user_id = ?message.author.id.to_string(), address = ?addr, "sending tokens");
+        // Track addresses which couldn't be parsed
+        let mut unparsed_addresses = Vec::<String>::new();
 
-            // TODO: Invoke `pcli tx send` to dispense some random coins to the address, then
-            // wait until `pcli balance` indicates that the transaction has been confirmed.
-            // While this is happening, use the typing indicator API to show that something is
-            // happening.
-            let result = Ok::<_, anyhow::Error>(());
+        // Extract up to the maximum number of permissible valid addresses from the list
+        let mut count = 0;
+        while count <= self.max_addresses_per_message {
+            count += 1;
+            match addresses.pop() {
+                Some(AddressOrAlmost::Address(addr)) => {
+                    // Reply to the originating message with the address
+                    tracing::info!(user_name = ?message.author.name, user_id = ?message.author.id.to_string(), address = ?addr, "sending tokens");
 
-            match result {
-                Ok(()) => succeeded_addresses.push(addr),
-                Err(e) => failed_addresses.push((addr, e.to_string())),
+                    // TODO: Invoke `pcli tx send` to dispense some random coins to the address, then
+                    // wait until `pcli balance` indicates that the transaction has been confirmed.
+                    // While this is happening, use the typing indicator API to show that something is
+                    // happening.
+                    let result = Ok::<_, anyhow::Error>(());
+
+                    match result {
+                        Ok(()) => succeeded_addresses.push(*addr),
+                        Err(e) => failed_addresses.push((*addr, e.to_string())),
+                    }
+                }
+                Some(AddressOrAlmost::Almost(addr)) => {
+                    unparsed_addresses.push(addr);
+                }
+                None => break,
+            }
+        }
+
+        // Separate the rest of the list into unparsed and remaining valid ones
+        let mut remaining_addresses = Vec::<Address>::new();
+        for addr in addresses {
+            match addr {
+                AddressOrAlmost::Address(addr) => remaining_addresses.push(*addr),
+                AddressOrAlmost::Almost(addr) => unparsed_addresses.push(addr),
             }
         }
 
@@ -87,7 +110,8 @@ impl Worker {
         self.reply_dispense_summary(
             &succeeded_addresses,
             &failed_addresses,
-            remaining_addresses,
+            &unparsed_addresses,
+            &remaining_addresses,
             message,
         )
         .await;
@@ -95,9 +119,10 @@ impl Worker {
 
     async fn reply_dispense_summary<'a>(
         &mut self,
-        succeeded_addresses: &[&'a String],
-        failed_addresses: &[(&'a String, String)],
-        remaining_addresses: &[String],
+        succeeded_addresses: &[Address],
+        failed_addresses: &[(Address, String)],
+        unparsed_addresses: &[String],
+        remaining_addresses: &[Address],
         message: impl Borrow<Message>,
     ) {
         let succeeded_addresses = succeeded_addresses.borrow();
@@ -142,6 +167,16 @@ impl Worker {
             ))
         }
 
+        if !unparsed_addresses.is_empty() {
+            response.push_str(
+                "\nThe following _look like_ Penumbra addresses, \
+                but are invalid (maybe a typo or old address version?):",
+            );
+            for addr in unparsed_addresses {
+                response.push_str(&format!("\n`{}`", addr));
+            }
+        }
+
         if !remaining_addresses.is_empty() {
             response.push_str(&format!(
                 "\nI'm only allowed to send tokens to addresses {} at a time; \
@@ -161,7 +196,7 @@ impl Worker {
         message: impl Borrow<Message>,
         rate_limit: Duration,
         last_fulfilled: Instant,
-        _addresses: Vec<String>,
+        _addresses: Vec<AddressOrAlmost>,
     ) {
         let response = format!(
             "Please wait for another {} before requesting more tokens. Thanks!",

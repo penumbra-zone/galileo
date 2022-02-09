@@ -14,7 +14,7 @@ use serenity::{
 };
 use tokio::time::{Duration, Instant};
 
-use super::action::{Action, ActionQueue};
+use super::action::{Action, ActionQueue, AddressOrAlmost};
 
 pub struct Handler {
     /// The minimum duration between dispensing tokens to a user.
@@ -70,10 +70,19 @@ impl EventHandler for Handler {
 
         // Collect all the matches into a struct, bundled with the original message
         tracing::trace!("collecting addresses from message");
-        let addresses: Vec<String> = self
+        let addresses: Vec<AddressOrAlmost> = self
             .address_regex
             .find_iter(&message.content)
-            .map(|m| m.as_str().to_string())
+            .map(|m| {
+                use AddressOrAlmost::*;
+                match m.as_str().parse() {
+                    Ok(addr) => Address(Box::new(addr)),
+                    Err(e) => {
+                        tracing::trace!(error = ?e, "failed to parse address");
+                        Almost(m.as_str().to_string())
+                    }
+                }
+            })
             .collect();
 
         // If no addresses were found, don't bother sending the message to the queue
