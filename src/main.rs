@@ -1,5 +1,6 @@
+use clap::Parser;
 use serenity::prelude::*;
-use std::{env, time::Duration};
+use std::env;
 use tokio::sync::mpsc;
 
 mod action;
@@ -11,13 +12,16 @@ use handler::Handler;
 mod worker;
 use worker::Worker;
 
+mod opt;
+use opt::Opt;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-
+    let opt = Opt::parse();
     let discord_token = env::var("DISCORD_TOKEN")?;
 
-    let handler = Handler::new(Duration::from_secs(60), vec!["bot-stuff".to_string()]);
+    let handler = Handler::new(opt.rate_limit, opt.channel);
 
     // Make a new client using a token set by an environment variable, with our handlers
     let mut client = Client::builder(&discord_token)
@@ -25,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     // Put the sending end of the address queue into the global TypeMap
-    let (send_actions, receive_actions) = mpsc::channel(100);
+    let (send_actions, receive_actions) = mpsc::channel(opt.buffer_size);
     client
         .data
         .write()
@@ -36,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
     let cache_http = client.cache_and_http.clone();
 
     // Spawn a task to handle the address queue
-    let worker = Worker::new(1, receive_actions, cache_http);
+    let worker = Worker::new(opt.max_addresses, receive_actions, cache_http);
 
     // Start the client and the worker
     tokio::select! {

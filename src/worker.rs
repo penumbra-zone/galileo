@@ -79,8 +79,6 @@ impl Worker {
             }
         }
 
-        // Compose a response to the user summarizing the actions taken
-
         // Reply with a summary of what occurred
         let response =
             dispense_summary(&succeeded_addresses, &failed_addresses, remaining_addresses);
