@@ -24,6 +24,8 @@ pub enum Action {
     RateLimit {
         /// The originating message that resulted in this rate-limit.
         message: Message,
+        /// The addresses found in the message.
+        addresses: Vec<String>,
         /// The last time this request was fulfilled for the user.
         last_fulfilled: Instant,
         /// The rate limit duration.

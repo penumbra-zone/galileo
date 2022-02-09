@@ -33,8 +33,12 @@ impl Worker {
                 Action::RateLimit {
                     last_fulfilled,
                     rate_limit,
+                    addresses,
                     message,
-                } => self.rate_limit(message, rate_limit, last_fulfilled).await,
+                } => {
+                    self.rate_limit(message, rate_limit, last_fulfilled, addresses)
+                        .await
+                }
                 Action::Dispense { addresses, message } => self.dispense(message, addresses).await,
             }
         }
@@ -157,6 +161,7 @@ impl Worker {
         message: impl Borrow<Message>,
         rate_limit: Duration,
         last_fulfilled: Instant,
+        _addresses: Vec<String>,
     ) {
         let response = format!(
             "Please wait for another {} before requesting more tokens. Thanks!",

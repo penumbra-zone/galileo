@@ -68,6 +68,20 @@ impl EventHandler for Handler {
             tracing::trace!("finished pruning send history");
         }
 
+        // Collect all the matches into a struct, bundled with the original message
+        tracing::trace!("collecting addresses from message");
+        let addresses: Vec<String> = self
+            .address_regex
+            .find_iter(&message.content)
+            .map(|m| m.as_str().to_string())
+            .collect();
+
+        // If no addresses were found, don't bother sending the message to the queue
+        if addresses.is_empty() {
+            tracing::trace!("no addresses found in message");
+            return;
+        }
+
         // If the message author was in the send history, don't send them tokens
         let rate_limited = self
             .send_history
@@ -98,6 +112,7 @@ impl EventHandler for Handler {
 
             Action::RateLimit {
                 rate_limit: self.rate_limit,
+                addresses,
                 last_fulfilled,
                 message,
             }
@@ -108,20 +123,6 @@ impl EventHandler for Handler {
                 .lock()
                 .unwrap()
                 .push_back((message.author.id, Instant::now(), 0));
-
-            // Collect all the matches into a struct, bundled with the original message
-            tracing::trace!("collecting addresses from message");
-            let addresses: Vec<String> = self
-                .address_regex
-                .find_iter(&message.content)
-                .map(|m| m.as_str().to_string())
-                .collect();
-
-            // If no addresses were found, don't bother sending the message to the queue
-            if addresses.is_empty() {
-                tracing::trace!("no addresses found in message");
-                return;
-            }
 
             tracing::trace!(addresses = ?addresses, "sending addresses to worker");
             Action::Dispense { addresses, message }
