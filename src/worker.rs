@@ -1,6 +1,10 @@
 use std::{borrow::Borrow, sync::Arc, time::Duration};
 
-use serenity::{model::channel::Message, CacheAndHttp};
+use serenity::{
+    model::{channel::Message, id::RoleId},
+    prelude::Mentionable,
+    CacheAndHttp,
+};
 use tokio::{sync::mpsc, time::Instant};
 
 use super::action::Action;
@@ -12,6 +16,8 @@ pub struct Worker {
     actions: mpsc::Receiver<Action>,
     /// Cache and http for dispatching replies.
     cache_http: Arc<CacheAndHttp>,
+    /// Administrator role to mention when errors occur.
+    admin_role: Option<RoleId>,
 }
 
 impl Worker {
@@ -24,6 +30,7 @@ impl Worker {
             max_addresses_per_message,
             actions,
             cache_http,
+            admin_role: None,
         }
     }
 
@@ -81,8 +88,50 @@ impl Worker {
 
         // Reply with a summary of what occurred
         let response =
-            dispense_summary(&succeeded_addresses, &failed_addresses, remaining_addresses);
+            self.dispense_summary(&succeeded_addresses, &failed_addresses, remaining_addresses);
         self.reply(message, response).await
+    }
+
+    fn dispense_summary<'a>(
+        &self,
+        succeeded_addresses: &[&'a String],
+        failed_addresses: &[(&'a String, String)],
+        remaining_addresses: &[String],
+    ) -> String {
+        let succeeded_addresses = succeeded_addresses.borrow();
+        let failed_addresses = failed_addresses.borrow();
+        let remaining_addresses = remaining_addresses.borrow();
+
+        let mut response = String::new();
+
+        if !succeeded_addresses.is_empty() {
+            response.push_str("Successfully sent tokens to the following addresses:\n");
+            for addr in succeeded_addresses {
+                response.push_str(&format!("`{}`\n", addr));
+            }
+        }
+
+        if !failed_addresses.is_empty() {
+            response.push_str("Failed to send tokens to the following addresses:\n");
+            for (addr, error) in failed_addresses {
+                response.push_str(&format!("`{}` (error: {})\n", addr, error));
+            }
+            response.push_str(&format!(
+                "{}: you may want to investigate this error :)",
+                self.admin_role
+                    .map(|role_id| role_id.mention().to_string())
+                    .unwrap_or_else(|| "Server administrator(s)".to_string())
+            ))
+        }
+
+        if !remaining_addresses.is_empty() {
+            response.push_str("\nThe following addresses were not sent tokens because you have already requested them recently:\n");
+            for addr in remaining_addresses {
+                response.push_str(&format!("`{}`\n", addr));
+            }
+        }
+
+        response
     }
 
     async fn rate_limit(
@@ -97,39 +146,4 @@ impl Worker {
         );
         self.reply(message, response).await
     }
-}
-
-fn dispense_summary<'a>(
-    succeeded_addresses: &[&'a String],
-    failed_addresses: &[(&'a String, String)],
-    remaining_addresses: &[String],
-) -> String {
-    let succeeded_addresses = succeeded_addresses.borrow();
-    let failed_addresses = failed_addresses.borrow();
-    let remaining_addresses = remaining_addresses.borrow();
-
-    let mut response = String::new();
-
-    if !succeeded_addresses.is_empty() {
-        response.push_str("Successfully sent tokens to the following addresses:\n");
-        for addr in succeeded_addresses {
-            response.push_str(&format!("- {}\n", addr));
-        }
-    }
-
-    if !failed_addresses.is_empty() {
-        response.push_str("Failed to send tokens to the following addresses:\n");
-        for (addr, error) in failed_addresses {
-            response.push_str(&format!("- {}: {}\n", addr, error));
-        }
-    }
-
-    if !remaining_addresses.is_empty() {
-        response.push_str("\nThe following addresses were not sent tokens because you have already requested them recently:\n");
-        for addr in remaining_addresses {
-            response.push_str(&format!("- {}\n", addr));
-        }
-    }
-
-    response
 }

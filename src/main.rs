@@ -1,5 +1,4 @@
 use clap::Parser;
-use serenity::prelude::*;
 use std::env;
 use tokio::sync::mpsc;
 
@@ -24,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     let handler = Handler::new(opt.rate_limit, opt.channel);
 
     // Make a new client using a token set by an environment variable, with our handlers
-    let mut client = Client::builder(&discord_token)
+    let mut client = serenity::Client::builder(&discord_token)
         .event_handler(handler)
         .await?;
 

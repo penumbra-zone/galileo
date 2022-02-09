@@ -5,7 +5,7 @@ use std::time::Duration;
 #[clap(author, version, about)]
 pub struct Opt {
     /// Per-user rate limit (e.g. "10m" or "1day").
-    #[clap(short, long, parse(try_from_str = humantime::parse_duration))]
+    #[clap(short, long, default_value = "1h", parse(try_from_str = humantime::parse_duration))]
     pub rate_limit: Duration,
     /// Channel name in which to interact (can be specified more than once).
     #[clap(short, long)]
