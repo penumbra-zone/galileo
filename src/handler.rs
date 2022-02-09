@@ -16,11 +16,19 @@ use tokio::time::{Duration, Instant};
 
 use super::action::{Action, ActionQueue};
 
+#[derive(Debug, Clone, Copy)]
+pub enum Notified {
+    /// The user has been notified of the rate-limit.
+    Already,
+    /// The user has not been notified of the rate-limit.
+    NotYet,
+}
+
 pub struct Handler {
     enabled_channels: Vec<String>,
     rate_limit: Duration,
     address_regex: Regex,
-    send_history: Arc<Mutex<VecDeque<(UserId, Instant)>>>,
+    send_history: Arc<Mutex<VecDeque<(UserId, Instant, Notified)>>>,
 }
 
 impl Handler {
@@ -59,7 +67,7 @@ impl EventHandler for Handler {
             tracing::trace!("pruning send history");
             // scoped to prevent deadlock on send_history
             let mut send_history = self.send_history.lock().unwrap();
-            while let Some((user, last_fulfilled)) = send_history.front() {
+            while let Some((user, last_fulfilled, _)) = send_history.front() {
                 if last_fulfilled.elapsed() >= self.rate_limit {
                     tracing::debug!(?user, ?last_fulfilled, "rate limit expired");
                     send_history.pop_front();
@@ -71,16 +79,34 @@ impl EventHandler for Handler {
         }
 
         // If the message author was in the send history, don't send them tokens
-        let last_fulfilled = self
+        let rate_limited = self
             .send_history
             .lock()
             .unwrap()
-            .iter()
-            .find(|(user, _)| *user == message.author.id)
-            .map(|(_, last_fulfilled)| *last_fulfilled);
+            .iter_mut()
+            .find(|(user, _, _)| *user == message.author.id)
+            .map(|(_, last_fulfilled, notified)| {
+                (
+                    *last_fulfilled,
+                    // We set notified to `Already` to prevent replying about the rate limit again:
+                    std::mem::replace(notified, Notified::Already),
+                )
+            });
 
-        let queue_message = if let Some(last_fulfilled) = last_fulfilled {
-            tracing::info!(user_name = ?message.author.name, user_id = ?message.author.id.to_string(), ?last_fulfilled, "rate-limited user");
+        let queue_message = if let Some((last_fulfilled, notified)) = rate_limited {
+            tracing::info!(
+                user_name = ?message.author.name,
+                ?notified,
+                user_id = ?message.author.id.to_string(),
+                ?last_fulfilled,
+                "rate-limited user"
+            );
+
+            // If we already notified the user, don't reply again
+            if let Notified::Already = notified {
+                return;
+            }
+
             Action::RateLimit {
                 rate_limit: self.rate_limit,
                 last_fulfilled,
@@ -89,10 +115,11 @@ impl EventHandler for Handler {
         } else {
             // Push the user into the send history queue for rate-limiting in the future
             tracing::trace!(user = ?message.author, "pushing user into send history");
-            self.send_history
-                .lock()
-                .unwrap()
-                .push_back((message.author.id, Instant::now()));
+            self.send_history.lock().unwrap().push_back((
+                message.author.id,
+                Instant::now(),
+                Notified::NotYet,
+            ));
 
             // Collect all the matches into a struct, bundled with the original message
             tracing::trace!("collecting addresses from message");
