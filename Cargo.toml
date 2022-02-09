@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 # Penumbra dependencies
 penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra" }
-penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", features = ["sqlx"]}
+penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", features = ["sqlx"] }
 penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra" }
 
 # External dependencies
@@ -19,7 +19,9 @@ regex = "1"
 serenity = { version = "0.10", default-features = false, features = ["client", "cache", "gateway", "rustls_backend", "model"] }
 sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "postgres", "offline" ] }
 tracing = "0.1"
+tracing-subscriber = "0.2"
 tokio = { version = "1", features = ["full"] }
+humantime = "2"
 
 [patch.crates-io]
 ark-ff = { git = "https://github.com/penumbra-zone/algebra", branch = "ours" }
