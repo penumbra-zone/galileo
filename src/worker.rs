@@ -139,10 +139,11 @@ impl Worker {
         }
 
         if !remaining_addresses.is_empty() {
-            response.push_str(
-                "\nThe following addresses were not sent tokens \
-                because you have already requested them recently:",
-            );
+            response.push_str(&format!(
+                "\nI'm only allowed to send tokens to addresses {} at a time; \
+                try again later to get tokens for the following addresses:",
+                self.max_addresses_per_message,
+            ));
             for addr in remaining_addresses {
                 response.push_str(&format!("\n`{}`", addr));
             }
@@ -159,8 +160,17 @@ impl Worker {
     ) {
         let response = format!(
             "Please wait for another {} before requesting more tokens. Thanks!",
-            humantime::Duration::from(rate_limit - last_fulfilled.elapsed())
+            format_remaining_time(last_fulfilled, rate_limit)
         );
         self.reply(message, response).await
     }
+}
+
+fn format_remaining_time(last_fulfilled: Instant, rate_limit: Duration) -> String {
+    humantime::Duration::from(rate_limit - last_fulfilled.elapsed())
+        .to_string()
+        .split(' ')
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
