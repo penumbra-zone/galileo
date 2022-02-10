@@ -1,11 +1,17 @@
 use clap::Parser;
 use directories::ProjectDirs;
+use penumbra_crypto::Value;
 use std::{env, path::PathBuf, time::Duration};
 
 use crate::{ActionQueue, Handler, Responder, Wallet};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Serve {
+    /// The amounts to send for each response, written as typed values 1.87penumbra, 12cubes, etc.
+    values: Vec<Value>,
+    /// The transaction fee for each response (paid in upenumbra).
+    #[structopt(long, default_value = "0")]
+    fee: u64,
     /// Per-user rate limit (e.g. "10m" or "1day").
     #[clap(short, long, default_value = "1h", parse(try_from_str = humantime::parse_duration))]
     rate_limit: Duration,
@@ -72,6 +78,7 @@ impl Serve {
             self.max_addresses,
             cache_http,
             self.buffer_size,
+            self.values,
         );
 
         // Put the sending end of the address queue into the global TypeMap

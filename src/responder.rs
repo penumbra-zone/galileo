@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, sync::Arc, time::Duration};
 
-use penumbra_crypto::Address;
+use penumbra_crypto::{Address, Value};
 use serenity::{model::channel::Message, prelude::Mentionable, CacheAndHttp};
 use tokio::{sync::mpsc, time::Instant};
 
@@ -17,6 +17,8 @@ pub struct Responder {
     requests: mpsc::Sender<wallet::Request>,
     /// Cache and http for dispatching replies.
     cache_http: Arc<CacheAndHttp>,
+    /// Values to send each time.
+    values: Vec<Value>,
 }
 
 impl Responder {
@@ -25,6 +27,7 @@ impl Responder {
         max_addresses: usize,
         cache_http: Arc<CacheAndHttp>,
         buffer_size: usize,
+        values: Vec<Value>,
     ) -> (mpsc::Sender<Action>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
         (
@@ -34,6 +37,7 @@ impl Responder {
                 max_addresses,
                 actions: rx,
                 cache_http,
+                values,
             },
         )
     }
@@ -93,13 +97,11 @@ impl Responder {
                     // Reply to the originating message with the address
                     tracing::info!(user_name = ?message.author.name, user_id = ?message.author.id.to_string(), address = ?addr, "sending tokens");
 
-                    let amounts = todo!("determine amounts");
-
-                    let (result, request) = wallet::Request::send(*addr, amounts);
+                    let (result, request) = wallet::Request::send(*addr, self.values.clone());
                     self.requests.send(request).await?;
 
-                    // While this is happening, use the typing indicator API to show that something is
-                    // happening.
+                    // TODO: While this is happening, use the typing indicator API to show that
+                    // something is happening.
 
                     match result.await? {
                         Ok(()) => succeeded_addresses.push(*addr),
