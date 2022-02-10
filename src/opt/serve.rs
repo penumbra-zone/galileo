@@ -112,8 +112,10 @@ impl Serve {
         // Start the client and the two workers
         tokio::select! {
             result = client.start() => result.context("discord client error"),
-            result = tokio::spawn(responder.run()) => result.context("responder error")?,
-            result = tokio::spawn(wallet.run()) => result.context("wallet error")?,
+            result = tokio::spawn(responder.run()) =>
+                result.context("panic in responder service")?.context("error in responder service"),
+            result = tokio::spawn(wallet.run()) =>
+                result.context("panic in wallet service")?.context("error in wallet service"),
         }
     }
 }
