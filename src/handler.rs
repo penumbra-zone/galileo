@@ -6,12 +6,11 @@ use std::{
 
 use serenity::{
     async_trait,
-    client::{Cache, Context, EventHandler},
+    client::{Context, EventHandler},
     model::{
         channel::Message,
         id::{GuildId, UserId},
     },
-    prelude::Mentionable,
 };
 use tokio::{
     sync::watch,
@@ -51,9 +50,12 @@ impl Handler {
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
-        let self_id = ctx.cache.current_user().await.id;
-        let user_id = message.author.id;
-        let user_name = message.author.name.clone();
+        // Get the guild id of this message
+        let guild_id = if let Some(guild_id) = message.guild_id {
+            guild_id
+        } else {
+            return;
+        };
 
         // Get the channel of this message
         let guild_channel =
@@ -63,6 +65,10 @@ impl EventHandler for Handler {
                 tracing::trace!("could not find server");
                 return;
             };
+
+        let self_id = ctx.cache.current_user().await.id;
+        let user_id = message.author.id;
+        let user_name = message.author.name.clone();
 
         // Stop if we're not allowed to respond in this channel
         if let Ok(self_permissions) = guild_channel.permissions_for_user(&ctx, self_id).await {
@@ -100,10 +106,7 @@ impl EventHandler for Handler {
         }
 
         // Check if the message contains a penumbra address and create a request for it if so
-        let (response, request) = if let Ok(parsed) = {
-            let mention_admins = mention_admins(ctx.cache.clone(), message.guild_id);
-            Request::try_new(message, mention_admins)
-        } {
+        let (response, request) = if let Some(parsed) = { Request::try_new(&message) } {
             parsed
         } else {
             tracing::trace!("no addresses found in message");
@@ -148,7 +151,7 @@ impl EventHandler for Handler {
                 "Please wait for another {} before requesting more tokens. Thanks!",
                 format_remaining_time(last_fulfilled, self.rate_limit)
             );
-            reply(&ctx, request.message(), response).await;
+            reply(&ctx, message, response).await;
 
             return;
         }
@@ -177,8 +180,8 @@ impl EventHandler for Handler {
         }
 
         // Reply to the user with the response from the responder
-        if let Ok((message, response)) = response.await {
-            reply(&ctx, message, response).await;
+        if let Ok(response) = response.await {
+            reply(&ctx, message, response.summary(&ctx, guild_id).await).await;
         }
     }
 
@@ -194,25 +197,6 @@ impl EventHandler for Handler {
                 "connected to server"
             );
         }
-    }
-}
-
-/// Construct a mention for the admin roles for this server
-async fn mention_admins(cache: Arc<Cache>, guild_id: Option<GuildId>) -> String {
-    if let Some(guild_id) = guild_id {
-        cache
-            .guild_roles(guild_id)
-            .await
-            .iter()
-            .map(IntoIterator::into_iter)
-            .flatten()
-            .filter(|(_, r)| r.permissions.administrator())
-            .map(|(&id, _)| id)
-            .map(|role_id| role_id.mention().to_string())
-            .collect::<Vec<String>>()
-            .join(" ")
-    } else {
-        "Admin(s)".to_string()
     }
 }
 

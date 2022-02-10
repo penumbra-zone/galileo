@@ -1,13 +1,14 @@
-use std::{borrow::Borrow, pin::Pin};
-
-use derivative::Derivative;
-use futures::Future;
 use penumbra_crypto::{Address, Value};
-use regex::Regex;
-use serenity::{model::channel::Message, prelude::TypeMapKey};
-use tokio::sync::{mpsc, oneshot};
+use serenity::prelude::TypeMapKey;
+use tokio::sync::mpsc;
 
 use crate::wallet;
+
+mod request;
+pub use request::Request;
+
+mod response;
+pub use response::Response;
 
 pub struct Responder {
     /// Maximum number of addresses to handle per message.
@@ -28,67 +29,6 @@ pub struct RequestQueue;
 /// Associate the `AddressQueue` key with an `mpsc::Sender` for `AddressQueueMessage`s in the `TypeMap`.
 impl TypeMapKey for RequestQueue {
     type Value = mpsc::Sender<Request>;
-}
-
-/// A request to be fulfilled by the responder service.
-#[derive(Derivative)]
-#[derivative(Debug)]
-pub struct Request {
-    /// The originating message that contained these addresses.
-    message: Message,
-    /// The addresses matched in the originating message.
-    addresses: Vec<AddressOrAlmost>,
-    /// The sender for the response.
-    response: oneshot::Sender<(Message, String)>,
-    /// A future which can be invoked to obtain a mention-string for the admins of the server.
-    #[derivative(Debug = "ignore")]
-    mention_admins: Pin<Box<dyn Future<Output = String> + Send + Sync + 'static>>,
-}
-
-impl Request {
-    pub fn message(&self) -> &Message {
-        &self.message
-    }
-
-    pub fn try_new(
-        message: Message,
-        mention_admins: impl Future<Output = String> + Send + Sync + 'static,
-    ) -> Result<(oneshot::Receiver<(Message, String)>, Request), Message> {
-        let address_regex =
-            Regex::new(r"penumbrav\dt1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{126}").unwrap();
-
-        // Collect all the matches into a struct, bundled with the original message
-        tracing::trace!("collecting addresses from message");
-        let addresses: Vec<AddressOrAlmost> = address_regex
-            .find_iter(&message.content)
-            .map(|m| {
-                use AddressOrAlmost::*;
-                match m.as_str().parse() {
-                    Ok(addr) => Address(Box::new(addr)),
-                    Err(e) => {
-                        tracing::trace!(error = ?e, "failed to parse address");
-                        Almost(m.as_str().to_string())
-                    }
-                }
-            })
-            .collect();
-
-        // If no addresses were found, don't bother sending the message to the queue
-        if addresses.is_empty() {
-            Err(message)
-        } else {
-            let (tx, rx) = oneshot::channel();
-            Ok((
-                rx,
-                Request {
-                    message,
-                    addresses,
-                    response: tx,
-                    mention_admins: Box::pin(mention_admins),
-                },
-            ))
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -121,26 +61,17 @@ impl Responder {
     pub async fn run(mut self) -> anyhow::Result<()> {
         while let Some(Request {
             addresses,
-            message,
             response,
-            mention_admins,
         }) = self.actions.recv().await
         {
-            let reply = self.dispense(&message, addresses, mention_admins).await?;
-            let _ = response.send((message, reply));
+            let reply = self.dispense(addresses).await?;
+            let _ = response.send(reply);
         }
 
         Ok(())
     }
 
-    async fn dispense(
-        &mut self,
-        message: impl Borrow<Message>,
-        mut addresses: Vec<AddressOrAlmost>,
-        mention_admins: impl Future<Output = String> + Send + 'static,
-    ) -> anyhow::Result<String> {
-        let message = message.borrow();
-
+    async fn dispense(&mut self, mut addresses: Vec<AddressOrAlmost>) -> anyhow::Result<Response> {
         // Track addresses to which we successfully dispensed tokens
         let mut succeeded = Vec::<(Address, Vec<Value>)>::new();
 
@@ -157,12 +88,7 @@ impl Responder {
             match addresses.pop() {
                 Some(AddressOrAlmost::Address(addr)) => {
                     // Reply to the originating message with the address
-                    tracing::info!(
-                        user_name = ?message.author.name,
-                        user_id = ?message.author.id.to_string(),
-                        address = %addr,
-                        "requesting tokens"
-                    );
+                    tracing::info!(address = %addr, "requesting tokens");
 
                     let (result, request) =
                         wallet::Request::send(*addr, self.values.clone(), self.fee);
@@ -181,82 +107,19 @@ impl Responder {
         }
 
         // Separate the rest of the list into unparsed and remaining valid ones
-        let mut remaining_addresses = Vec::<Address>::new();
+        let mut remaining = Vec::<Address>::new();
         for addr in addresses {
             match addr {
-                AddressOrAlmost::Address(addr) => remaining_addresses.push(*addr),
+                AddressOrAlmost::Address(addr) => remaining.push(*addr),
                 AddressOrAlmost::Almost(addr) => unparsed.push(addr),
             }
         }
 
-        // Reply with a summary of what occurred
-        let response = self
-            .dispense_summary(
-                &succeeded,
-                &failed,
-                &unparsed,
-                &remaining_addresses,
-                mention_admins,
-            )
-            .await;
-
-        Ok(response)
-    }
-
-    async fn dispense_summary(
-        &mut self,
-        succeeded: &[(Address, Vec<Value>)],
-        failed: &[(Address, String)],
-        unparsed: &[String],
-        remaining: &[Address],
-        mention_admins: impl Future<Output = String> + Send + 'static,
-    ) -> String {
-        let succeeded_addresses = succeeded.borrow();
-        let failed_addresses = failed.borrow();
-        let remaining_addresses = remaining.borrow();
-
-        let mut response = String::new();
-
-        if !succeeded_addresses.is_empty() {
-            response.push_str("Successfully sent tokens to the following addresses:");
-            for (addr, _values) in succeeded_addresses {
-                response.push_str(&format!("\n`{}`", addr));
-            }
-        }
-
-        if !failed_addresses.is_empty() {
-            response.push_str("Failed to send tokens to the following addresses:");
-            for (addr, error) in failed_addresses {
-                response.push_str(&format!("\n`{}` (error: {})", addr, error));
-            }
-
-            response.push_str(&format!(
-                "\n{mention_admins}: you may want to investigate this error :)",
-                mention_admins = mention_admins.await,
-            ))
-        }
-
-        if !unparsed.is_empty() {
-            response.push_str(
-                "\nThe following _look like_ Penumbra addresses, \
-                but are invalid (maybe a typo or old address version?):",
-            );
-            for addr in unparsed {
-                response.push_str(&format!("\n`{}`", addr));
-            }
-        }
-
-        if !remaining_addresses.is_empty() {
-            response.push_str(&format!(
-                "\nI'm only allowed to send tokens to addresses {} at a time; \
-                try again later to get tokens for the following addresses:",
-                self.max_addresses,
-            ));
-            for addr in remaining_addresses {
-                response.push_str(&format!("\n`{}`", addr));
-            }
-        }
-
-        response
+        Ok(Response {
+            succeeded,
+            failed,
+            unparsed,
+            remaining,
+        })
     }
 }
