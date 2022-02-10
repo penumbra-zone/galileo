@@ -3,7 +3,7 @@ use directories::ProjectDirs;
 use penumbra_crypto::Value;
 use std::{env, path::PathBuf, time::Duration};
 
-use crate::{ActionQueue, Handler, Responder, Wallet};
+use crate::{responder::RequestQueue, Handler, Responder, Wallet};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Serve {
@@ -73,7 +73,7 @@ impl Serve {
         );
 
         // Make a worker to handle the address queue
-        let (send_actions, responder) = Responder::new(
+        let (send_requests, responder) = Responder::new(
             wallet_requests,
             self.max_addresses,
             cache_http,
@@ -86,7 +86,7 @@ impl Serve {
             .data
             .write()
             .await
-            .insert::<ActionQueue>(send_actions);
+            .insert::<RequestQueue>(send_requests);
 
         // Start the client and the worker
         tokio::select! {

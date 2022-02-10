@@ -1,24 +1,96 @@
-use std::{borrow::Borrow, sync::Arc, time::Duration};
+use std::{borrow::Borrow, sync::Arc};
 
 use penumbra_crypto::{Address, Value};
-use serenity::{model::channel::Message, prelude::Mentionable, CacheAndHttp};
-use tokio::{sync::mpsc, time::Instant};
+use regex::Regex;
+use serenity::{
+    model::channel::Message,
+    prelude::{Mentionable, TypeMapKey},
+    CacheAndHttp,
+};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::wallet;
-
-use super::action::{Action, AddressOrAlmost};
 
 pub struct Responder {
     /// Maximum number of addresses to handle per message.
     max_addresses: usize,
     /// Actions to perform.
-    actions: mpsc::Receiver<Action>,
+    actions: mpsc::Receiver<Request>,
     /// Requests outbound to the wallet worker.
     requests: mpsc::Sender<wallet::Request>,
     /// Cache and http for dispatching replies.
     cache_http: Arc<CacheAndHttp>,
     /// Values to send each time.
     values: Vec<Value>,
+}
+
+/// `TypeMap` key for the address queue.
+pub struct RequestQueue;
+
+/// Associate the `AddressQueue` key with an `mpsc::Sender` for `AddressQueueMessage`s in the `TypeMap`.
+impl TypeMapKey for RequestQueue {
+    type Value = mpsc::Sender<Request>;
+}
+
+/// `TypeMap` value for the sender end of the address queue.
+#[derive(Debug)]
+pub struct Request {
+    /// The originating message that contained these addresses.
+    message: Message,
+    /// The addresses matched in the originating message.
+    addresses: Vec<AddressOrAlmost>,
+    /// The sender for the response.
+    response: oneshot::Sender<(Message, String)>,
+}
+
+impl Request {
+    pub fn message(&self) -> &Message {
+        &self.message
+    }
+
+    pub fn try_from_message(
+        message: Message,
+    ) -> Result<(oneshot::Receiver<(Message, String)>, Request), Message> {
+        let address_regex =
+            Regex::new(r"penumbrav\dt1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{126}").unwrap();
+
+        // Collect all the matches into a struct, bundled with the original message
+        tracing::trace!("collecting addresses from message");
+        let addresses: Vec<AddressOrAlmost> = address_regex
+            .find_iter(&message.content)
+            .map(|m| {
+                use AddressOrAlmost::*;
+                match m.as_str().parse() {
+                    Ok(addr) => Address(Box::new(addr)),
+                    Err(e) => {
+                        tracing::trace!(error = ?e, "failed to parse address");
+                        Almost(m.as_str().to_string())
+                    }
+                }
+            })
+            .collect();
+
+        // If no addresses were found, don't bother sending the message to the queue
+        if addresses.is_empty() {
+            Err(message)
+        } else {
+            let (tx, rx) = oneshot::channel();
+            Ok((
+                rx,
+                Request {
+                    message,
+                    addresses,
+                    response: tx,
+                },
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum AddressOrAlmost {
+    Address(Box<Address>),
+    Almost(String),
 }
 
 impl Responder {
@@ -28,7 +100,7 @@ impl Responder {
         cache_http: Arc<CacheAndHttp>,
         buffer_size: usize,
         values: Vec<Value>,
-    ) -> (mpsc::Sender<Action>, Self) {
+    ) -> (mpsc::Sender<Request>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
         (
             tx,
@@ -43,40 +115,24 @@ impl Responder {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        while let Some(m) = self.actions.recv().await {
-            match m {
-                Action::RateLimit {
-                    last_fulfilled,
-                    rate_limit,
-                    addresses,
-                    message,
-                } => {
-                    self.rate_limit(message, rate_limit, last_fulfilled, addresses)
-                        .await
-                }
-                Action::Dispense { addresses, message } => {
-                    self.dispense(message, addresses).await?
-                }
-            }
+        while let Some(Request {
+            addresses,
+            message,
+            response,
+        }) = self.actions.recv().await
+        {
+            let reply = self.dispense(&message, addresses).await?;
+            let _ = response.send((message, reply));
         }
 
         Ok(())
-    }
-
-    async fn reply(&mut self, message: impl Borrow<Message>, response: impl Borrow<str>) {
-        message
-            .borrow()
-            .reply_ping(&self.cache_http, response.borrow())
-            .await
-            .map(|_| ())
-            .unwrap_or_else(|e| tracing::error!(error = ?e, "failed to reply"));
     }
 
     async fn dispense(
         &mut self,
         message: impl Borrow<Message>,
         mut addresses: Vec<AddressOrAlmost>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<String> {
         let message = message.borrow();
 
         // Track addresses to which we successfully dispensed tokens
@@ -125,16 +181,17 @@ impl Responder {
         }
 
         // Reply with a summary of what occurred
-        self.reply_dispense_summary(
-            &succeeded_addresses,
-            &failed_addresses,
-            &unparsed_addresses,
-            &remaining_addresses,
-            message,
-        )
-        .await;
+        let response = self
+            .reply_dispense_summary(
+                &succeeded_addresses,
+                &failed_addresses,
+                &unparsed_addresses,
+                &remaining_addresses,
+                message,
+            )
+            .await;
 
-        Ok(())
+        Ok(response)
     }
 
     async fn reply_dispense_summary<'a>(
@@ -144,7 +201,7 @@ impl Responder {
         unparsed_addresses: &[String],
         remaining_addresses: &[Address],
         message: impl Borrow<Message>,
-    ) {
+    ) -> String {
         let succeeded_addresses = succeeded_addresses.borrow();
         let failed_addresses = failed_addresses.borrow();
         let remaining_addresses = remaining_addresses.borrow();
@@ -208,29 +265,6 @@ impl Responder {
             }
         }
 
-        self.reply(message, response).await;
+        response
     }
-
-    async fn rate_limit(
-        &mut self,
-        message: impl Borrow<Message>,
-        rate_limit: Duration,
-        last_fulfilled: Instant,
-        _addresses: Vec<AddressOrAlmost>,
-    ) {
-        let response = format!(
-            "Please wait for another {} before requesting more tokens. Thanks!",
-            format_remaining_time(last_fulfilled, rate_limit)
-        );
-        self.reply(message, response).await
-    }
-}
-
-fn format_remaining_time(last_fulfilled: Instant, rate_limit: Duration) -> String {
-    humantime::Duration::from(rate_limit - last_fulfilled.elapsed())
-        .to_string()
-        .split(' ')
-        .take(3)
-        .collect::<Vec<_>>()
-        .join(" ")
 }

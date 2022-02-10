@@ -1,9 +1,9 @@
 use std::{
+    borrow::Borrow,
     collections::VecDeque,
     sync::{Arc, Mutex},
 };
 
-use regex::Regex;
 use serenity::{
     async_trait,
     client::{Context, EventHandler},
@@ -14,15 +14,13 @@ use serenity::{
 };
 use tokio::time::{Duration, Instant};
 
-use super::action::{Action, ActionQueue, AddressOrAlmost};
+use super::responder::{Request, RequestQueue};
 
 pub struct Handler {
     /// The minimum duration between dispensing tokens to a user.
     rate_limit: Duration,
     /// Limit of the number of times, per user, we will inform that user of their rate limit.
     reply_limit: usize,
-    /// Regex to detect penumbra addresses.
-    address_regex: Regex,
     /// History of requests we answered for token dispersal, with a timestamp and the number of
     /// times we've told the user about the rate limit (so that eventually we can stop replying if
     /// they keep asking).
@@ -34,9 +32,6 @@ impl Handler {
         Handler {
             rate_limit,
             reply_limit,
-            // Match penumbra testnet addresses (any version)
-            address_regex: Regex::new(r"penumbrav\dt1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{126}")
-                .unwrap(),
             send_history: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
@@ -45,9 +40,12 @@ impl Handler {
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
+        let user_id = message.author.id;
+        let user_name = message.author.name.clone();
+
         // Don't trigger on messages we ourselves send, or when a message is in a channel we're not
         // supposed to interact within
-        if message.author.id == ctx.cache.current_user().await.id {
+        if user_id == ctx.cache.current_user().await.id {
             tracing::trace!("detected message from ourselves");
             return;
         }
@@ -68,28 +66,13 @@ impl EventHandler for Handler {
             tracing::trace!("finished pruning send history");
         }
 
-        // Collect all the matches into a struct, bundled with the original message
-        tracing::trace!("collecting addresses from message");
-        let addresses: Vec<AddressOrAlmost> = self
-            .address_regex
-            .find_iter(&message.content)
-            .map(|m| {
-                use AddressOrAlmost::*;
-                match m.as_str().parse() {
-                    Ok(addr) => Address(Box::new(addr)),
-                    Err(e) => {
-                        tracing::trace!(error = ?e, "failed to parse address");
-                        Almost(m.as_str().to_string())
-                    }
-                }
-            })
-            .collect();
-
-        // If no addresses were found, don't bother sending the message to the queue
-        if addresses.is_empty() {
+        // Check if the message contains a penumbra address
+        let (response, request) = if let Ok(parsed) = Request::try_from_message(message) {
+            parsed
+        } else {
             tracing::trace!("no addresses found in message");
             return;
-        }
+        };
 
         // If the message author was in the send history, don't send them tokens
         let rate_limited = self
@@ -97,7 +80,7 @@ impl EventHandler for Handler {
             .lock()
             .unwrap()
             .iter_mut()
-            .find(|(user, _, _)| *user == message.author.id)
+            .find(|(user, _, _)| *user == user_id)
             .map(|(_, last_fulfilled, notified)| {
                 // Increase the notification count by one and return the previous count:
                 let old_notified = *notified;
@@ -105,11 +88,11 @@ impl EventHandler for Handler {
                 (*last_fulfilled, old_notified)
             });
 
-        let queue_message = if let Some((last_fulfilled, notified)) = rate_limited {
+        if let Some((last_fulfilled, notified)) = rate_limited {
             tracing::info!(
-                user_name = ?message.author.name,
+                ?user_name,
                 ?notified,
-                user_id = ?message.author.id.to_string(),
+                user_id = ?user_id.to_string(),
                 ?last_fulfilled,
                 "rate-limited user"
             );
@@ -119,34 +102,38 @@ impl EventHandler for Handler {
                 return;
             }
 
-            Action::RateLimit {
-                rate_limit: self.rate_limit,
-                addresses,
-                last_fulfilled,
-                message,
-            }
-        } else {
-            // Push the user into the send history queue for rate-limiting in the future
-            tracing::trace!(user = ?message.author, "pushing user into send history");
-            self.send_history
-                .lock()
-                .unwrap()
-                .push_back((message.author.id, Instant::now(), 0));
+            let response = format!(
+                "Please wait for another {} before requesting more tokens. Thanks!",
+                format_remaining_time(last_fulfilled, self.rate_limit)
+            );
+            reply(&ctx, request.message(), response).await;
 
-            tracing::trace!(addresses = ?addresses, "sending addresses to worker");
-            Action::Dispense { addresses, message }
-        };
+            return;
+        }
+
+        // Push the user into the send history queue for rate-limiting in the future
+        tracing::trace!(?user_name, user_id = ?user_id.to_string(), "pushing user into send history");
+        self.send_history
+            .lock()
+            .unwrap()
+            .push_back((user_id, Instant::now(), 0));
 
         // Send the message to the queue, to be processed asynchronously
         tracing::trace!("sending message to worker queue");
         ctx.data
             .read()
             .await
-            .get::<ActionQueue>()
+            .get::<RequestQueue>()
             .expect("address queue exists")
-            .send(queue_message)
+            .send(request)
             .await
             .expect("send to queue always succeeds");
+
+        // TODO: use typing API to indicate something is happening
+
+        if let Ok((message, response)) = response.await {
+            reply(&ctx, message, response).await;
+        }
     }
 
     async fn cache_ready(&self, ctx: Context, guilds: Vec<GuildId>) {
@@ -162,4 +149,22 @@ impl EventHandler for Handler {
             );
         }
     }
+}
+
+async fn reply(ctx: &Context, message: impl Borrow<Message>, response: impl Borrow<str>) {
+    message
+        .borrow()
+        .reply_ping(&ctx.http, response.borrow())
+        .await
+        .map(|_| ())
+        .unwrap_or_else(|e| tracing::error!(error = ?e, "failed to reply"));
+}
+
+fn format_remaining_time(last_fulfilled: Instant, rate_limit: Duration) -> String {
+    humantime::Duration::from(rate_limit - last_fulfilled.elapsed())
+        .to_string()
+        .split(' ')
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
