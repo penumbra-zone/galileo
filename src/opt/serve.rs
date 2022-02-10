@@ -47,9 +47,6 @@ impl Serve {
             .event_handler(handler)
             .await?;
 
-        // Get the cache and http part of the client, for use in dispatching replies
-        let cache_http = client.cache_and_http.clone();
-
         // Look up the path to the wallet file per platform, creating the directory if needed
         let wallet_file = self.wallet_file.map_or_else(
             || {
@@ -76,7 +73,6 @@ impl Serve {
         let (send_requests, responder) = Responder::new(
             wallet_requests,
             self.max_addresses,
-            cache_http,
             self.buffer_size,
             self.values,
         );

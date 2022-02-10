@@ -1,12 +1,10 @@
-use std::{borrow::Borrow, sync::Arc};
+use std::{borrow::Borrow, pin::Pin};
 
+use derivative::Derivative;
+use futures::Future;
 use penumbra_crypto::{Address, Value};
 use regex::Regex;
-use serenity::{
-    model::channel::Message,
-    prelude::{Mentionable, TypeMapKey},
-    CacheAndHttp,
-};
+use serenity::{model::channel::Message, prelude::TypeMapKey};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::wallet;
@@ -18,8 +16,6 @@ pub struct Responder {
     actions: mpsc::Receiver<Request>,
     /// Requests outbound to the wallet worker.
     requests: mpsc::Sender<wallet::Request>,
-    /// Cache and http for dispatching replies.
-    cache_http: Arc<CacheAndHttp>,
     /// Values to send each time.
     values: Vec<Value>,
 }
@@ -32,8 +28,9 @@ impl TypeMapKey for RequestQueue {
     type Value = mpsc::Sender<Request>;
 }
 
-/// `TypeMap` value for the sender end of the address queue.
-#[derive(Debug)]
+/// A request to be fulfilled by the responder service.
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Request {
     /// The originating message that contained these addresses.
     message: Message,
@@ -41,6 +38,9 @@ pub struct Request {
     addresses: Vec<AddressOrAlmost>,
     /// The sender for the response.
     response: oneshot::Sender<(Message, String)>,
+    /// A future which can be invoked to obtain a mention-string for the admins of the server.
+    #[derivative(Debug = "ignore")]
+    mention_admins: Pin<Box<dyn Future<Output = String> + Send + Sync + 'static>>,
 }
 
 impl Request {
@@ -48,8 +48,9 @@ impl Request {
         &self.message
     }
 
-    pub fn try_from_message(
+    pub fn try_new(
         message: Message,
+        mention_admins: impl Future<Output = String> + Send + Sync + 'static,
     ) -> Result<(oneshot::Receiver<(Message, String)>, Request), Message> {
         let address_regex =
             Regex::new(r"penumbrav\dt1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{126}").unwrap();
@@ -81,6 +82,7 @@ impl Request {
                     message,
                     addresses,
                     response: tx,
+                    mention_admins: Box::pin(mention_admins),
                 },
             ))
         }
@@ -97,7 +99,6 @@ impl Responder {
     pub fn new(
         requests: mpsc::Sender<wallet::Request>,
         max_addresses: usize,
-        cache_http: Arc<CacheAndHttp>,
         buffer_size: usize,
         values: Vec<Value>,
     ) -> (mpsc::Sender<Request>, Self) {
@@ -108,7 +109,6 @@ impl Responder {
                 requests,
                 max_addresses,
                 actions: rx,
-                cache_http,
                 values,
             },
         )
@@ -119,9 +119,10 @@ impl Responder {
             addresses,
             message,
             response,
+            mention_admins,
         }) = self.actions.recv().await
         {
-            let reply = self.dispense(&message, addresses).await?;
+            let reply = self.dispense(&message, addresses, mention_admins).await?;
             let _ = response.send((message, reply));
         }
 
@@ -132,6 +133,7 @@ impl Responder {
         &mut self,
         message: impl Borrow<Message>,
         mut addresses: Vec<AddressOrAlmost>,
+        mention_admins: impl Future<Output = String> + Send + Sync + 'static,
     ) -> anyhow::Result<String> {
         let message = message.borrow();
 
@@ -182,25 +184,25 @@ impl Responder {
 
         // Reply with a summary of what occurred
         let response = self
-            .reply_dispense_summary(
+            .dispense_summary(
                 &succeeded_addresses,
                 &failed_addresses,
                 &unparsed_addresses,
                 &remaining_addresses,
-                message,
+                mention_admins,
             )
             .await;
 
         Ok(response)
     }
 
-    async fn reply_dispense_summary<'a>(
+    async fn dispense_summary<'a>(
         &mut self,
         succeeded_addresses: &[Address],
         failed_addresses: &[(Address, String)],
         unparsed_addresses: &[String],
         remaining_addresses: &[Address],
-        message: impl Borrow<Message>,
+        mention_admins: impl Future<Output = String> + Send + 'static,
     ) -> String {
         let succeeded_addresses = succeeded_addresses.borrow();
         let failed_addresses = failed_addresses.borrow();
@@ -221,26 +223,9 @@ impl Responder {
                 response.push_str(&format!("\n`{}` (error: {})", addr, error));
             }
 
-            // Construct a mention for the admin roles for this server
-            let mention_admins = if let Some(guild_id) = message.borrow().guild_id {
-                self.cache_http
-                    .cache
-                    .guild_roles(guild_id)
-                    .await
-                    .iter()
-                    .map(IntoIterator::into_iter)
-                    .flatten()
-                    .filter(|(_, r)| r.permissions.administrator())
-                    .map(|(&id, _)| id)
-                    .map(|role_id| role_id.mention().to_string())
-                    .collect::<Vec<String>>()
-                    .join(" ")
-            } else {
-                "Admin(s)".to_string()
-            };
-
             response.push_str(&format!(
                 "\n{mention_admins}: you may want to investigate this error :)",
+                mention_admins = mention_admins.await,
             ))
         }
 

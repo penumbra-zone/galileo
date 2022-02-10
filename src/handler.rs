@@ -6,11 +6,12 @@ use std::{
 
 use serenity::{
     async_trait,
-    client::{Context, EventHandler},
+    client::{Cache, Context, EventHandler},
     model::{
         channel::Message,
         id::{GuildId, UserId},
     },
+    prelude::Mentionable,
 };
 use tokio::time::{Duration, Instant};
 
@@ -66,8 +67,11 @@ impl EventHandler for Handler {
             tracing::trace!("finished pruning send history");
         }
 
-        // Check if the message contains a penumbra address
-        let (response, request) = if let Ok(parsed) = Request::try_from_message(message) {
+        // Check if the message contains a penumbra address and create a request for it if so
+        let (response, request) = if let Ok(parsed) = {
+            let mention_admins = mention_admins(ctx.cache.clone(), message.guild_id);
+            Request::try_new(message, mention_admins)
+        } {
             parsed
         } else {
             tracing::trace!("no addresses found in message");
@@ -151,10 +155,29 @@ impl EventHandler for Handler {
     }
 }
 
+/// Construct a mention for the admin roles for this server
+async fn mention_admins(cache: Arc<Cache>, guild_id: Option<GuildId>) -> String {
+    if let Some(guild_id) = guild_id {
+        cache
+            .guild_roles(guild_id)
+            .await
+            .iter()
+            .map(IntoIterator::into_iter)
+            .flatten()
+            .filter(|(_, r)| r.permissions.administrator())
+            .map(|(&id, _)| id)
+            .map(|role_id| role_id.mention().to_string())
+            .collect::<Vec<String>>()
+            .join(" ")
+    } else {
+        "Admin(s)".to_string()
+    }
+}
+
 async fn reply(ctx: &Context, message: impl Borrow<Message>, response: impl Borrow<str>) {
     message
         .borrow()
-        .reply_ping(&ctx.http, response.borrow())
+        .reply_ping(ctx.http.clone(), response.borrow())
         .await
         .map(|_| ())
         .unwrap_or_else(|e| tracing::error!(error = ?e, "failed to reply"));
