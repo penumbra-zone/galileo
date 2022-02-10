@@ -203,7 +203,7 @@ impl Responder {
         Ok(response)
     }
 
-    async fn dispense_summary<'a>(
+    async fn dispense_summary(
         &mut self,
         succeeded: &[(Address, Vec<Value>)],
         failed: &[(Address, String)],
