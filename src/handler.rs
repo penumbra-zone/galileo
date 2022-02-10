@@ -41,12 +41,34 @@ impl Handler {
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, message: Message) {
+        let self_id = ctx.cache.current_user().await.id;
         let user_id = message.author.id;
         let user_name = message.author.name.clone();
 
-        // Don't trigger on messages we ourselves send, or when a message is in a channel we're not
-        // supposed to interact within
-        if user_id == ctx.cache.current_user().await.id {
+        // Get the channel of this message
+        let guild_channel =
+            if let Some(guild_channel) = ctx.cache.guild_channel(message.channel_id).await {
+                guild_channel
+            } else {
+                tracing::trace!("could not find server");
+                return;
+            };
+
+        // Stop if we're not allowed to respond in this channel
+        if let Ok(self_permissions) = guild_channel.permissions_for_user(&ctx, self_id).await {
+            if !self_permissions.send_messages() {
+                tracing::trace!(
+                    ?guild_channel,
+                    "not allowed to send messages in this channel"
+                );
+                return;
+            }
+        } else {
+            return;
+        };
+
+        // Don't trigger on messages we ourselves send
+        if user_id == self_id {
             tracing::trace!("detected message from ourselves");
             return;
         }
@@ -133,8 +155,12 @@ impl EventHandler for Handler {
             .await
             .expect("send to queue always succeeds");
 
-        // TODO: use typing API to indicate something is happening
+        // Broadcast to the channel that we are typing, so users know something is happening
+        if let Err(e) = guild_channel.broadcast_typing(&ctx).await {
+            tracing::error!(error = ?e, "failed to broadcast typing");
+        }
 
+        // Reply to the user with the response from the responder
         if let Ok((message, response)) = response.await {
             reply(&ctx, message, response).await;
         }
