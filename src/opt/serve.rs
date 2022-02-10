@@ -52,13 +52,6 @@ impl Serve {
     pub async fn exec(self) -> anyhow::Result<()> {
         let discord_token = env::var("DISCORD_TOKEN")?;
 
-        let handler = Handler::new(self.rate_limit, self.reply_limit);
-
-        // Make a new client using a token set by an environment variable, with our handlers
-        let mut client = serenity::Client::builder(&discord_token)
-            .event_handler(handler)
-            .await?;
-
         // Look up the path to the wallet file per platform, creating the directory if needed
         let wallet_file = self.wallet_file.map_or_else(
             || {
@@ -73,7 +66,7 @@ impl Serve {
         );
 
         // Make a worker to handle the wallet
-        let (wallet_requests, wallet) = Wallet::new(
+        let (wallet_requests, wallet_ready, wallet) = Wallet::new(
             wallet_file,
             self.source_address,
             self.sync_interval,
@@ -93,6 +86,13 @@ impl Serve {
             self.values,
             self.fee,
         );
+
+        let handler = Handler::new(self.rate_limit, self.reply_limit, wallet_ready);
+
+        // Make a new client using a token set by an environment variable, with our handlers
+        let mut client = serenity::Client::builder(&discord_token)
+            .event_handler(handler)
+            .await?;
 
         // Put the sending end of the address queue into the global TypeMap
         client

@@ -13,7 +13,10 @@ use serenity::{
     },
     prelude::Mentionable,
 };
-use tokio::time::{Duration, Instant};
+use tokio::{
+    sync::watch,
+    time::{Duration, Instant},
+};
 
 use super::responder::{Request, RequestQueue};
 
@@ -26,13 +29,20 @@ pub struct Handler {
     /// times we've told the user about the rate limit (so that eventually we can stop replying if
     /// they keep asking).
     send_history: Arc<Mutex<VecDeque<(UserId, Instant, usize)>>>,
+    /// Watch whether the wallet is ready to receive requests.
+    wallet_ready: watch::Receiver<bool>,
 }
 
 impl Handler {
-    pub fn new(rate_limit: Duration, reply_limit: usize) -> Self {
+    pub fn new(
+        rate_limit: Duration,
+        reply_limit: usize,
+        wallet_ready: watch::Receiver<bool>,
+    ) -> Self {
         Handler {
             rate_limit,
             reply_limit,
+            wallet_ready,
             send_history: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
@@ -99,6 +109,12 @@ impl EventHandler for Handler {
             tracing::trace!("no addresses found in message");
             return;
         };
+
+        // Check if the wallet is ready, and abort if not
+        if !*self.wallet_ready.borrow() {
+            tracing::trace!("wallet not ready");
+            return;
+        }
 
         // If the message author was in the send history, don't send them tokens
         let rate_limited = self

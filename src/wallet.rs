@@ -13,7 +13,7 @@ use penumbra_wallet::ClientState;
 use rand::rngs::OsRng;
 use tokio::{
     io::AsyncWriteExt,
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
     time::Instant,
 };
 use tonic::transport::Channel;
@@ -26,7 +26,7 @@ pub struct Wallet {
     sync_interval: Duration,
     save_interval: Duration,
     requests: mpsc::Receiver<Request>,
-    initial_sync: bool,
+    initial_sync: watch::Sender<bool>,
     node: String,
     light_wallet_port: u16,
     thin_wallet_port: u16,
@@ -72,17 +72,19 @@ impl Wallet {
         light_wallet_port: u16,
         thin_wallet_port: u16,
         rpc_port: u16,
-    ) -> (mpsc::Sender<Request>, Self) {
+    ) -> (mpsc::Sender<Request>, watch::Receiver<bool>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
+        let (watch_tx, watch_rx) = watch::channel(false);
         (
             tx,
+            watch_rx,
             Self {
                 client_state: None,
                 client_state_path,
                 sync_interval,
                 save_interval,
                 requests: rx,
-                initial_sync: false,
+                initial_sync: watch_tx,
                 node,
                 light_wallet_port,
                 thin_wallet_port,
@@ -101,12 +103,12 @@ impl Wallet {
                 _ = tokio::time::sleep(sync_duration.unwrap_or(Duration::ZERO)) => {
                     tracing::trace!("syncing wallet");
                     self.sync().await?;
-                    if self.initial_sync {
+                    if *self.initial_sync.borrow() {
                         sync_duration = Some(self.sync_interval);
                     }
                 },
                 request = self.requests.recv() => match request {
-                    Some(Request { destination, amounts, result, fee }) => if self.initial_sync {
+                    Some(Request { destination, amounts, result, fee }) => if *self.initial_sync.borrow() {
                         tracing::trace!("sending back result of request");
                         let _ = result.send(self.dispense(destination, amounts, fee).await);
                     } else {
@@ -127,7 +129,7 @@ impl Wallet {
     /// Syncs blocks until the sync interval times out, then writes the state to disk.
     #[instrument(skip(self))]
     async fn sync(&mut self) -> anyhow::Result<()> {
-        if !self.initial_sync {
+        if !*self.initial_sync.borrow() {
             tracing::info!(
                 "starting initial sync: please wait for sync to complete before requesting tokens"
             );
@@ -179,12 +181,12 @@ impl Wallet {
                 // Update asset registry after finishing sync to the top of the chain
                 self.update_asset_registry().await?;
 
-                if !self.initial_sync {
+                if !*self.initial_sync.borrow() {
                     tracing::info!(?height, "initial sync complete: ready to process requests");
                 } else {
                     tracing::debug!(?height, ?count, "finished sync");
                 }
-                self.initial_sync = true;
+                let _ = self.initial_sync.send(true);
                 return Ok(());
             }
         }
