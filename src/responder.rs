@@ -52,7 +52,7 @@ impl Request {
 
     pub fn try_new(
         message: Message,
-        mention_admins: impl Future<Output = String> + Send + Sync + 'static,
+        mention_admins: impl Future<Output = String> + Send + 'static,
     ) -> Result<(oneshot::Receiver<(Message, String)>, Request), Message> {
         let address_regex =
             Regex::new(r"penumbrav\dt1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{126}").unwrap();
@@ -137,7 +137,7 @@ impl Responder {
         &mut self,
         message: impl Borrow<Message>,
         mut addresses: Vec<AddressOrAlmost>,
-        mention_admins: impl Future<Output = String> + Send + Sync + 'static,
+        mention_admins: impl Future<Output = String> + Send + 'static,
     ) -> anyhow::Result<String> {
         let message = message.borrow();
 
