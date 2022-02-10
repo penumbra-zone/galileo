@@ -1,19 +1,24 @@
 use clap::Parser;
-use std::time::Duration;
+
+mod serve;
 
 #[derive(Debug, Clone, Parser)]
 #[clap(author, version, about)]
 pub struct Opt {
-    /// Per-user rate limit (e.g. "10m" or "1day").
-    #[clap(short, long, default_value = "1h", parse(try_from_str = humantime::parse_duration))]
-    pub rate_limit: Duration,
-    /// Maximum number of times to reply to a user informing them of the rate limit.
-    #[clap(long, default_value = "5")]
-    pub reply_limit: usize,
-    /// Maximum number of addresses per message to which to dispense tokens.
-    #[clap(default_value = "1")]
-    pub max_addresses: usize,
-    /// Internal buffer size for the queue of actions to perform.
-    #[clap(default_value = "100")]
-    pub buffer_size: usize,
+    #[clap(subcommand)]
+    pub command: Command,
+}
+
+impl Opt {
+    pub async fn exec(self) -> anyhow::Result<()> {
+        match self.command {
+            Command::Serve(run) => run.exec().await,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Parser)]
+pub enum Command {
+    /// Run the bot.
+    Serve(serve::Serve),
 }
