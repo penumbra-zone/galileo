@@ -28,10 +28,17 @@ pub struct Serve {
     /// Path to the wallet file to use [default: platform appdata directory].
     #[clap(long, short)]
     wallet_file: Option<PathBuf>,
+    /// The address of the pd+tendermint node.
     #[clap(long, default_value = "testnet.penumbra.zone")]
     node: String,
+    /// The port to use to speak to pd's light wallet server.
     #[clap(long, default_value = "26666")]
     light_wallet_port: u16,
+    /// The port to use to speak to tendermint.
+    #[clap(long, default_value = "26657")]
+    rpc_port: u16,
+    #[clap(long = "source")]
+    source_address: Option<u64>,
     /// The amounts to send for each response, written as typed values 1.87penumbra, 12cubes, etc.
     values: Vec<Value>,
 }
@@ -63,10 +70,12 @@ impl Serve {
         // Make a worker to handle the wallet
         let (wallet_requests, wallet) = Wallet::new(
             wallet_file,
+            self.source_address,
             self.sync_interval,
             self.buffer_size,
             self.node,
             self.light_wallet_port,
+            self.rpc_port,
         );
 
         // Make a worker to handle the address queue
@@ -75,6 +84,7 @@ impl Serve {
             self.max_addresses,
             self.buffer_size,
             self.values,
+            self.fee,
         );
 
         // Put the sending end of the address queue into the global TypeMap

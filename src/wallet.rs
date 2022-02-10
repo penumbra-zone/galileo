@@ -5,7 +5,9 @@ use penumbra_crypto::{Address, Value};
 use penumbra_proto::light_wallet::{
     light_wallet_client::LightWalletClient, CompactBlockRangeRequest,
 };
+use penumbra_transaction::Transaction;
 use penumbra_wallet::ClientState;
+use rand::rngs::OsRng;
 use tokio::{
     io::AsyncWriteExt,
     sync::{mpsc, oneshot},
@@ -23,12 +25,15 @@ pub struct Wallet {
     initial_sync: bool,
     node: String,
     light_wallet_port: u16,
+    rpc_port: u16,
+    source: Option<u64>,
 }
 
 #[derive(Debug)]
 pub struct Request {
     destination: Address,
     amounts: Vec<Value>,
+    fee: u64,
     result: oneshot::Sender<Result<(), anyhow::Error>>,
 }
 
@@ -36,12 +41,14 @@ impl Request {
     pub fn send(
         destination: Address,
         amounts: Vec<Value>,
+        fee: u64,
     ) -> (oneshot::Receiver<anyhow::Result<()>>, Self) {
         let (tx, rx) = oneshot::channel();
         let request = Request {
             destination,
             amounts,
             result: tx,
+            fee,
         };
         (rx, request)
     }
@@ -50,10 +57,12 @@ impl Request {
 impl Wallet {
     pub fn new(
         client_state_path: PathBuf,
+        source_address: Option<u64>,
         sync_interval: Duration,
         buffer_size: usize,
         node: String,
         light_wallet_port: u16,
+        rpc_port: u16,
     ) -> (mpsc::Sender<Request>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
         (
@@ -66,6 +75,8 @@ impl Wallet {
                 initial_sync: false,
                 node,
                 light_wallet_port,
+                rpc_port,
+                source: source_address,
             },
         )
     }
@@ -81,9 +92,9 @@ impl Wallet {
                     sync_duration = Some(self.sync_interval);
                 },
                 request = self.requests.recv() => match request {
-                    Some(Request { destination, amounts, result }) => if self.initial_sync {
+                    Some(Request { destination, amounts, result, fee }) => if self.initial_sync {
                         tracing::trace!("sending back result of request");
-                        let _ = result.send(self.dispense(destination, amounts).await);
+                        let _ = result.send(self.dispense(destination, amounts, fee).await);
                     } else {
                         tracing::trace!("waiting for initial sync");
                         let _ = result.send(Err(anyhow::anyhow!("still performing initial sync, please wait")));
@@ -152,6 +163,22 @@ impl Wallet {
         Ok(())
     }
 
+    #[instrument(skip(self))]
+    async fn dispense(
+        &mut self,
+        destination: Address,
+        amounts: Vec<Value>,
+        fee: u64,
+    ) -> anyhow::Result<()> {
+        let source_address = self.source;
+        let state = self.state().await?;
+        let transaction =
+            state.build_send(&mut OsRng, &amounts, fee, destination, source_address, None)?;
+        self.submit_transaction(&transaction).await?;
+        self.save_state().await?;
+        Ok(())
+    }
+
     async fn state(&mut self) -> anyhow::Result<&mut ClientState> {
         if self.client_state.is_none() {
             tracing::trace!(?self.client_state_path, "reading client state");
@@ -215,9 +242,52 @@ impl Wallet {
             .map_err(Into::into)
     }
 
-    #[instrument(skip(self))]
-    async fn dispense(&mut self, destination: Address, amounts: Vec<Value>) -> anyhow::Result<()> {
-        // TODO: prepare a transaction and transmit it to the network, then wait for it to be confirmed.
-        Ok(())
+    /// Submits a transaction to the network, returning `Ok` only when the remote
+    /// node has accepted the transaction, and erroring otherwise.
+    #[instrument(skip(self, transaction))]
+    pub async fn submit_transaction(&self, transaction: &Transaction) -> Result<(), anyhow::Error> {
+        use penumbra_proto::Protobuf;
+        tracing::info!("broadcasting transaction...");
+
+        let client = reqwest::Client::new();
+        let req_id: u8 = rand::random();
+        let rsp: serde_json::Value = client
+            .post(format!(r#"http://{}:{}"#, self.node, self.rpc_port))
+            .json(&serde_json::json!(
+                {
+                    "method": "broadcast_tx_sync",
+                    "params": [&transaction.encode_to_vec()],
+                    "id": req_id,
+                }
+            ))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        tracing::info!("{}", rsp);
+
+        // Sometimes the result is in a result key, and sometimes it's bare? (??)
+        let result = rsp.get("result").unwrap_or(&rsp);
+
+        let code = result
+            .get("code")
+            .and_then(|c| c.as_i64())
+            .ok_or_else(|| anyhow::anyhow!("could not parse JSON response"))?;
+
+        if code == 0 {
+            Ok(())
+        } else {
+            let log = result
+                .get("log")
+                .and_then(|l| l.as_str())
+                .ok_or_else(|| anyhow::anyhow!("could not parse JSON response"))?;
+
+            Err(anyhow::anyhow!(
+                "Error submitting transaction: code {}, log: {}",
+                code,
+                log
+            ))
+        }
     }
 }

@@ -11,6 +11,7 @@ license = "MIT OR Apache-2.0"
 penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra" }
 penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", features = ["sqlx"] }
 penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra" }
+penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra" }
 
 # External dependencies
 anyhow = "1"
@@ -28,6 +29,8 @@ tonic = "0.6"
 futures = "0.3"
 derivative = "2"
 fslock = "0.2"
+rand = "0.8"
+reqwest = "0.11"
 
 [patch.crates-io]
 ark-ff = { git = "https://github.com/penumbra-zone/algebra", branch = "ours" }

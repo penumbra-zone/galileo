@@ -18,6 +18,8 @@ pub struct Responder {
     requests: mpsc::Sender<wallet::Request>,
     /// Values to send each time.
     values: Vec<Value>,
+    /// Fee to send each time.
+    fee: u64,
 }
 
 /// `TypeMap` key for the address queue.
@@ -101,6 +103,7 @@ impl Responder {
         max_addresses: usize,
         buffer_size: usize,
         values: Vec<Value>,
+        fee: u64,
     ) -> (mpsc::Sender<Request>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
         (
@@ -110,6 +113,7 @@ impl Responder {
                 max_addresses,
                 actions: rx,
                 values,
+                fee,
             },
         )
     }
@@ -155,7 +159,8 @@ impl Responder {
                     // Reply to the originating message with the address
                     tracing::info!(user_name = ?message.author.name, user_id = ?message.author.id.to_string(), address = ?addr, "sending tokens");
 
-                    let (result, request) = wallet::Request::send(*addr, self.values.clone());
+                    let (result, request) =
+                        wallet::Request::send(*addr, self.values.clone(), self.fee);
                     self.requests.send(request).await?;
 
                     match result.await? {
