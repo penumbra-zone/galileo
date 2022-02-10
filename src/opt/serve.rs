@@ -52,8 +52,8 @@ impl Serve {
     pub async fn exec(self) -> anyhow::Result<()> {
         if self.values.is_empty() {
             anyhow::bail!("at least one value must be provided");
-        } else if self.values.iter().all(|v| v.amount.is_zero()) {
-            anyhow::bail!("at least one value must be non-zero");
+        } else if self.values.iter().any(|v| v.amount.is_zero()) {
+            anyhow::bail!("all values must be non-zero");
         }
 
         let discord_token = env::var("DISCORD_TOKEN")?;
