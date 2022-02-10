@@ -4,8 +4,8 @@ pub use action::ActionQueue;
 mod handler;
 pub use handler::Handler;
 
-mod worker;
-pub use worker::Worker;
+mod responder;
+pub use responder::Responder;
 
 mod opt;
 pub use opt::Opt;

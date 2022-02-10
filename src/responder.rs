@@ -4,35 +4,41 @@ use penumbra_crypto::Address;
 use serenity::{model::channel::Message, prelude::Mentionable, CacheAndHttp};
 use tokio::{sync::mpsc, time::Instant};
 
+use crate::wallet;
+
 use super::action::{Action, AddressOrAlmost};
 
-pub struct Worker {
+pub struct Responder {
     /// Maximum number of addresses to handle per message.
-    max_addresses_per_message: usize,
+    max_addresses: usize,
     /// Actions to perform.
     actions: mpsc::Receiver<Action>,
+    /// Requests outbound to the wallet worker.
+    requests: mpsc::Sender<wallet::Request>,
     /// Cache and http for dispatching replies.
     cache_http: Arc<CacheAndHttp>,
 }
 
-impl Worker {
+impl Responder {
     pub fn new(
-        max_addresses_per_message: usize,
+        requests: mpsc::Sender<wallet::Request>,
+        max_addresses: usize,
         cache_http: Arc<CacheAndHttp>,
         buffer_size: usize,
     ) -> (mpsc::Sender<Action>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
         (
             tx,
-            Worker {
-                max_addresses_per_message,
+            Responder {
+                requests,
+                max_addresses,
                 actions: rx,
                 cache_http,
             },
         )
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self) -> anyhow::Result<()> {
         while let Some(m) = self.actions.recv().await {
             match m {
                 Action::RateLimit {
@@ -44,9 +50,13 @@ impl Worker {
                     self.rate_limit(message, rate_limit, last_fulfilled, addresses)
                         .await
                 }
-                Action::Dispense { addresses, message } => self.dispense(message, addresses).await,
+                Action::Dispense { addresses, message } => {
+                    self.dispense(message, addresses).await?
+                }
             }
         }
+
+        Ok(())
     }
 
     async fn reply(&mut self, message: impl Borrow<Message>, response: impl Borrow<str>) {
@@ -62,7 +72,7 @@ impl Worker {
         &mut self,
         message: impl Borrow<Message>,
         mut addresses: Vec<AddressOrAlmost>,
-    ) {
+    ) -> anyhow::Result<()> {
         let message = message.borrow();
 
         // Track addresses to which we successfully dispensed tokens
@@ -76,20 +86,22 @@ impl Worker {
 
         // Extract up to the maximum number of permissible valid addresses from the list
         let mut count = 0;
-        while count <= self.max_addresses_per_message {
+        while count <= self.max_addresses {
             count += 1;
             match addresses.pop() {
                 Some(AddressOrAlmost::Address(addr)) => {
                     // Reply to the originating message with the address
                     tracing::info!(user_name = ?message.author.name, user_id = ?message.author.id.to_string(), address = ?addr, "sending tokens");
 
-                    // TODO: Invoke `pcli tx send` to dispense some random coins to the address, then
-                    // wait until `pcli balance` indicates that the transaction has been confirmed.
+                    let amounts = todo!("determine amounts");
+
+                    let (result, request) = wallet::Request::send(*addr, amounts);
+                    self.requests.send(request).await?;
+
                     // While this is happening, use the typing indicator API to show that something is
                     // happening.
-                    let result = Ok::<_, anyhow::Error>(());
 
-                    match result {
+                    match result.await? {
                         Ok(()) => succeeded_addresses.push(*addr),
                         Err(e) => failed_addresses.push((*addr, e.to_string())),
                     }
@@ -119,6 +131,8 @@ impl Worker {
             message,
         )
         .await;
+
+        Ok(())
     }
 
     async fn reply_dispense_summary<'a>(
@@ -185,7 +199,7 @@ impl Worker {
             response.push_str(&format!(
                 "\nI'm only allowed to send tokens to addresses {} at a time; \
                 try again later to get tokens for the following addresses:",
-                self.max_addresses_per_message,
+                self.max_addresses,
             ));
             for addr in remaining_addresses {
                 response.push_str(&format!("\n`{}`", addr));
