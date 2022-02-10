@@ -126,7 +126,6 @@ impl Wallet {
 
         // If the wallet does not yet have chain parameters set, update them
         self.fetch_chain_params().await?;
-        tracing::info!("fetched chain parameters");
 
         // Update blocks
         let start = Instant::now();
@@ -159,7 +158,6 @@ impl Wallet {
 
                 // Update asset registry after finishing sync to the top of the chain
                 self.update_asset_registry().await?;
-                tracing::info!("synced asset registry");
 
                 if !self.initial_sync {
                     tracing::info!(?height, "initial sync complete: ready to process requests");
@@ -240,9 +238,9 @@ impl Wallet {
         let mut lock = fslock::LockFile::open(&path.with_extension("lock"))?;
 
         // Try to lock the file and note in the log if we are waiting for another process to finish
-        tracing::debug!(?path, "Locking wallet file");
+        tracing::debug!(?path, "locking wallet file");
         let lock = if !lock.try_lock()? {
-            tracing::info!(?path, "Waiting to acquire lock for wallet");
+            tracing::info!(?path, "waiting to acquire lock for wallet");
             tokio::task::spawn_blocking(move || {
                 lock.lock()?;
                 Ok::<_, anyhow::Error>(lock)
@@ -305,16 +303,19 @@ impl Wallet {
     }
 
     async fn fetch_chain_params(&mut self) -> anyhow::Result<()> {
-        *self.state().await?.chain_params_mut() = Some(
-            self.light_wallet_client()
-                .await?
-                .chain_params(tonic::Request::new(ChainParamsRequest {
-                    chain_id: self.state().await?.chain_id().unwrap_or_default(),
-                }))
-                .await?
-                .into_inner()
-                .into(),
-        );
+        if self.state().await?.chain_params().is_none() {
+            *self.state().await?.chain_params_mut() = Some(
+                self.light_wallet_client()
+                    .await?
+                    .chain_params(tonic::Request::new(ChainParamsRequest {
+                        chain_id: self.state().await?.chain_id().unwrap_or_default(),
+                    }))
+                    .await?
+                    .into_inner()
+                    .into(),
+            );
+            tracing::debug!("fetched chain parameters");
+        }
         Ok(())
     }
 
@@ -340,6 +341,7 @@ impl Wallet {
                         })?,
                 ));
         }
+        tracing::debug!("synced asset registry");
         Ok(())
     }
 
