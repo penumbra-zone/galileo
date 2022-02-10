@@ -24,6 +24,7 @@ pub struct Wallet {
     client_state: Option<ClientState>,
     client_state_path: PathBuf,
     sync_interval: Duration,
+    save_interval: Duration,
     requests: mpsc::Receiver<Request>,
     initial_sync: bool,
     node: String,
@@ -31,6 +32,7 @@ pub struct Wallet {
     thin_wallet_port: u16,
     rpc_port: u16,
     source: Option<u64>,
+    last_saved: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -64,6 +66,7 @@ impl Wallet {
         client_state_path: PathBuf,
         source_address: Option<u64>,
         sync_interval: Duration,
+        save_interval: Duration,
         buffer_size: usize,
         node: String,
         light_wallet_port: u16,
@@ -77,6 +80,7 @@ impl Wallet {
                 client_state: None,
                 client_state_path,
                 sync_interval,
+                save_interval,
                 requests: rx,
                 initial_sync: false,
                 node,
@@ -84,6 +88,7 @@ impl Wallet {
                 thin_wallet_port,
                 rpc_port,
                 source: source_address,
+                last_saved: None,
             },
         )
     }
@@ -96,7 +101,9 @@ impl Wallet {
                 _ = tokio::time::sleep(sync_duration.unwrap_or(Duration::ZERO)) => {
                     tracing::trace!("syncing wallet");
                     self.sync().await?;
-                    sync_duration = Some(self.sync_interval);
+                    if self.initial_sync {
+                        sync_duration = Some(self.sync_interval);
+                    }
                 },
                 request = self.requests.recv() => match request {
                     Some(Request { destination, amounts, result, fee }) => if self.initial_sync {
@@ -131,13 +138,19 @@ impl Wallet {
         let start = Instant::now();
         tracing::trace!("starting sync");
 
-        let state = self.state().await?;
-        let start_height = state.last_block_height().map(|h| h + 1).unwrap_or(0);
+        let start_height = self
+            .state()
+            .await?
+            .last_block_height()
+            .map(|h| h + 1)
+            .unwrap_or(0);
         let mut stream = light_client
             .compact_block_range(tonic::Request::new(CompactBlockRangeRequest {
                 start_height,
                 end_height: 0,
-                chain_id: state
+                chain_id: self
+                    .state()
+                    .await?
                     .chain_id()
                     .ok_or_else(|| anyhow::anyhow!("missing chain_id"))?,
             }))
@@ -150,11 +163,12 @@ impl Wallet {
                 if block.height % 1000 == 0 {
                     tracing::debug!(height = ?block.height, ?count, "scanning block");
                 }
-                state.scan_block(block)?;
+                self.state().await?.scan_block(block)?;
+                self.save_state().await?;
                 count += 1;
             } else {
                 // Get the height at which we've finished syncing the chain
-                let height = state.last_block_height().unwrap_or(0);
+                let height = self.state().await?.last_block_height().unwrap_or(0);
 
                 // Update asset registry after finishing sync to the top of the chain
                 self.update_asset_registry().await?;
@@ -169,14 +183,9 @@ impl Wallet {
             }
         }
 
-        tracing::info!(
-            height = ?state.last_block_height().unwrap_or(0),
-            ?count,
-            "syncing..."
-        );
+        let height = self.state().await?.last_block_height().unwrap_or(0);
+        tracing::info!(?height, ?count, "syncing...");
 
-        tracing::trace!("saving client state");
-        self.save_state().await?;
         Ok(())
     }
 
@@ -211,22 +220,34 @@ impl Wallet {
         Ok(self.client_state.as_mut().unwrap())
     }
 
-    async fn save_state(&self) -> anyhow::Result<()> {
+    #[instrument(skip(self))]
+    async fn save_state(&mut self) -> anyhow::Result<()> {
         if let Some(client_state) = &self.client_state {
-            // Serialize the state to a temporary file
-            let tmp_path = self.client_state_path.with_extension("tmp");
-            let serialized =
-                serde_json::to_vec(client_state).context("could not serialize wallet state")?;
-            let mut tmp_file = tokio::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&tmp_path)
-                .await?;
-            tmp_file.write_all(&serialized).await?;
+            let time_since_last_save = self
+                .last_saved
+                .map(|i| i.elapsed())
+                .unwrap_or(Duration::MAX);
+            if time_since_last_save > self.save_interval {
+                // Serialize the state to a temporary file
+                let tmp_path = self.client_state_path.with_extension("tmp");
+                let serialized =
+                    serde_json::to_vec(client_state).context("could not serialize wallet state")?;
+                let mut tmp_file = tokio::fs::OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .truncate(true)
+                    .open(&tmp_path)
+                    .await?;
+                tmp_file.write_all(&serialized).await?;
 
-            // Atomically move the temporary file to the final path
-            tokio::fs::rename(&tmp_path, &self.client_state_path).await?;
+                // Atomically move the temporary file to the final path
+                tokio::fs::rename(&tmp_path, &self.client_state_path).await?;
+
+                // We last saved now
+                self.last_saved = Some(Instant::now());
+
+                tracing::debug!("saved state");
+            }
         }
 
         Ok(())
@@ -314,6 +335,7 @@ impl Wallet {
                     .into_inner()
                     .into(),
             );
+            self.save_state().await?;
             tracing::debug!("fetched chain parameters");
         }
         Ok(())
@@ -341,6 +363,7 @@ impl Wallet {
                         })?,
                 ));
         }
+        self.save_state().await?;
         tracing::debug!("synced asset registry");
         Ok(())
     }

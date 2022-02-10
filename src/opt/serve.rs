@@ -17,8 +17,10 @@ pub struct Serve {
     #[clap(long, default_value = "5")]
     reply_limit: usize,
     /// Interval at which to synchronize the bot-owned wallet from the chain.
-    #[clap(short, long = "sync", default_value = "10s", parse(try_from_str = humantime::parse_duration))]
+    #[clap(long = "sync", default_value = "10s", parse(try_from_str = humantime::parse_duration))]
     sync_interval: Duration,
+    #[clap(long = "save", default_value = "1m", parse(try_from_str = humantime::parse_duration))]
+    save_interval: Duration,
     /// Maximum number of addresses per message to which to dispense tokens.
     #[clap(long, default_value = "1")]
     max_addresses: usize,
@@ -75,6 +77,7 @@ impl Serve {
             wallet_file,
             self.source_address,
             self.sync_interval,
+            self.save_interval,
             self.buffer_size,
             self.node,
             self.light_wallet_port,
