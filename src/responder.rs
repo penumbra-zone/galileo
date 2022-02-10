@@ -52,7 +52,7 @@ impl Request {
 
     pub fn try_new(
         message: Message,
-        mention_admins: impl Future<Output = String> + Send + 'static,
+        mention_admins: impl Future<Output = String> + Send + Sync + 'static,
     ) -> Result<(oneshot::Receiver<(Message, String)>, Request), Message> {
         let address_regex =
             Regex::new(r"penumbrav\dt1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{126}").unwrap();
