@@ -197,7 +197,7 @@ impl Wallet {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(skip(self, destination, amounts), fields(%destination))]
     async fn dispense(
         &mut self,
         destination: Address,

@@ -1,6 +1,6 @@
 use clap::Parser;
 use directories::ProjectDirs;
-use penumbra_crypto::Value;
+use penumbra_crypto::{Value, Zero};
 use std::{env, path::PathBuf, time::Duration};
 
 use crate::{responder::RequestQueue, Handler, Responder, Wallet};
@@ -50,6 +50,12 @@ pub struct Serve {
 
 impl Serve {
     pub async fn exec(self) -> anyhow::Result<()> {
+        if self.values.is_empty() {
+            anyhow::bail!("at least one value must be provided");
+        } else if self.values.iter().all(|v| v.amount.is_zero()) {
+            anyhow::bail!("at least one value must be non-zero");
+        }
+
         let discord_token = env::var("DISCORD_TOKEN")?;
 
         // Look up the path to the wallet file per platform, creating the directory if needed
@@ -101,7 +107,7 @@ impl Serve {
             .await
             .insert::<RequestQueue>(send_requests);
 
-        // Start the client and the worker
+        // Start the client and the two workers
         tokio::select! {
             result = client.start() => result.map_err(Into::into),
             result = tokio::spawn(responder.run()) => result?,
