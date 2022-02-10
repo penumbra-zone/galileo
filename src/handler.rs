@@ -113,12 +113,6 @@ impl EventHandler for Handler {
             return;
         };
 
-        // Check if the wallet is ready, and abort if not
-        if !*self.wallet_ready.borrow() {
-            tracing::trace!("wallet not ready");
-            return;
-        }
-
         // If the message author was in the send history, don't send them tokens
         let rate_limited = self
             .send_history
@@ -154,6 +148,17 @@ impl EventHandler for Handler {
             reply(&ctx, message, response).await;
 
             return;
+        }
+
+        // Wait for the wallet to be ready
+        let mut wallet_ready = self.wallet_ready.clone();
+        loop {
+            if let Err(e) = wallet_ready.changed().await {
+                tracing::error!(error = ?e, "wallet worker stopped");
+            }
+            if *wallet_ready.borrow() {
+                break;
+            }
         }
 
         // Push the user into the send history queue for rate-limiting in the future

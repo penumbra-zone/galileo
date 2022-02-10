@@ -103,6 +103,9 @@ impl Wallet {
     pub async fn run(mut self) -> anyhow::Result<()> {
         let wallet_lock = self.lock_wallet().await?; // lock wallet file while running
         let mut sync_duration = None;
+        tracing::info!(
+            "starting initial sync: please wait for sync to complete before requesting tokens"
+        );
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(sync_duration.unwrap_or(Duration::ZERO)) => {
@@ -134,12 +137,6 @@ impl Wallet {
     /// Sync blocks until the sync interval times out, periodically flushing the state to disk.
     #[instrument(skip(self))]
     async fn sync(&mut self) -> anyhow::Result<()> {
-        if !*self.initial_sync.borrow() {
-            tracing::info!(
-                "starting initial sync: please wait for sync to complete before requesting tokens"
-            );
-        }
-
         let sync_interval = self.sync_interval;
 
         let mut light_client = self.light_wallet_client().await?;
