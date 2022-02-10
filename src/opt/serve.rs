@@ -1,6 +1,5 @@
 use clap::Parser;
 use std::{env, time::Duration};
-use tokio::sync::mpsc;
 
 use crate::{ActionQueue, Handler, Worker};
 
@@ -31,19 +30,18 @@ impl Serve {
             .event_handler(handler)
             .await?;
 
+        // Get the cache and http part of the client, for use in dispatching replies
+        let cache_http = client.cache_and_http.clone();
+
+        // Spawn a task to handle the address queue
+        let (send_actions, worker) = Worker::new(self.max_addresses, cache_http, self.buffer_size);
+
         // Put the sending end of the address queue into the global TypeMap
-        let (send_actions, receive_actions) = mpsc::channel(self.buffer_size);
         client
             .data
             .write()
             .await
             .insert::<ActionQueue>(send_actions);
-
-        // Get the cache and http part of the client, for use in dispatching replies
-        let cache_http = client.cache_and_http.clone();
-
-        // Spawn a task to handle the address queue
-        let worker = Worker::new(self.max_addresses, receive_actions, cache_http);
 
         // Start the client and the worker
         tokio::select! {

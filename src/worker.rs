@@ -18,14 +18,18 @@ pub struct Worker {
 impl Worker {
     pub fn new(
         max_addresses_per_message: usize,
-        actions: mpsc::Receiver<Action>,
         cache_http: Arc<CacheAndHttp>,
-    ) -> Self {
-        Worker {
-            max_addresses_per_message,
-            actions,
-            cache_http,
-        }
+        buffer_size: usize,
+    ) -> (mpsc::Sender<Action>, Self) {
+        let (tx, rx) = mpsc::channel(buffer_size);
+        (
+            tx,
+            Worker {
+                max_addresses_per_message,
+                actions: rx,
+                cache_http,
+            },
+        )
     }
 
     pub async fn run(mut self) {
