@@ -17,10 +17,10 @@ pub struct Serve {
     #[clap(long, default_value = "5")]
     reply_limit: usize,
     /// Interval at which to synchronize the bot-owned wallet from the chain.
-    #[clap(long = "sync", default_value = "10s", parse(try_from_str = humantime::parse_duration))]
+    #[clap(short, long = "sync", default_value = "10s", parse(try_from_str = humantime::parse_duration))]
     sync_interval: Duration,
     /// Maximum number of addresses per message to which to dispense tokens.
-    #[clap(default_value = "1")]
+    #[clap(long, default_value = "1")]
     max_addresses: usize,
     /// Internal buffer size for the queue of actions to perform.
     #[clap(long, default_value = "100")]
@@ -29,11 +29,14 @@ pub struct Serve {
     #[clap(long, short)]
     wallet_file: Option<PathBuf>,
     /// The address of the pd+tendermint node.
-    #[clap(long, default_value = "testnet.penumbra.zone")]
+    #[clap(short, long, default_value = "testnet.penumbra.zone")]
     node: String,
     /// The port to use to speak to pd's light wallet server.
     #[clap(long, default_value = "26666")]
     light_wallet_port: u16,
+    /// The port to use to speak to pd's thin wallet server.
+    #[clap(long, default_value = "26667")]
+    thin_wallet_port: u16,
     /// The port to use to speak to tendermint.
     #[clap(long, default_value = "26657")]
     rpc_port: u16,
@@ -75,6 +78,7 @@ impl Serve {
             self.buffer_size,
             self.node,
             self.light_wallet_port,
+            self.thin_wallet_port,
             self.rpc_port,
         );
 

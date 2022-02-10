@@ -1,9 +1,12 @@
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::Context;
-use penumbra_crypto::{Address, Value};
-use penumbra_proto::light_wallet::{
-    light_wallet_client::LightWalletClient, CompactBlockRangeRequest,
+use penumbra_crypto::{asset, Address, Value};
+use penumbra_proto::{
+    light_wallet::{
+        light_wallet_client::LightWalletClient, ChainParamsRequest, CompactBlockRangeRequest,
+    },
+    thin_wallet::{thin_wallet_client::ThinWalletClient, AssetListRequest},
 };
 use penumbra_transaction::Transaction;
 use penumbra_wallet::ClientState;
@@ -25,6 +28,7 @@ pub struct Wallet {
     initial_sync: bool,
     node: String,
     light_wallet_port: u16,
+    thin_wallet_port: u16,
     rpc_port: u16,
     source: Option<u64>,
 }
@@ -55,6 +59,7 @@ impl Request {
 }
 
 impl Wallet {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         client_state_path: PathBuf,
         source_address: Option<u64>,
@@ -62,6 +67,7 @@ impl Wallet {
         buffer_size: usize,
         node: String,
         light_wallet_port: u16,
+        thin_wallet_port: u16,
         rpc_port: u16,
     ) -> (mpsc::Sender<Request>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
@@ -75,6 +81,7 @@ impl Wallet {
                 initial_sync: false,
                 node,
                 light_wallet_port,
+                thin_wallet_port,
                 rpc_port,
                 source: source_address,
             },
@@ -113,15 +120,21 @@ impl Wallet {
     /// Syncs blocks until the sync interval times out, then writes the state to disk.
     #[instrument(skip(self))]
     async fn sync(&mut self) -> anyhow::Result<()> {
+        let sync_interval = self.sync_interval;
+
+        let mut light_client = self.light_wallet_client().await?;
+
+        // If the wallet does not yet have chain parameters set, update them
+        self.fetch_chain_params().await?;
+        tracing::info!("fetched chain parameters");
+
+        // Update blocks
         let start = Instant::now();
         tracing::trace!("starting sync");
 
-        let mut client = self.light_wallet_client().await?;
-        let sync_interval = self.sync_interval;
         let state = self.state().await?;
-
         let start_height = state.last_block_height().map(|h| h + 1).unwrap_or(0);
-        let mut stream = client
+        let mut stream = light_client
             .compact_block_range(tonic::Request::new(CompactBlockRangeRequest {
                 start_height,
                 end_height: 0,
@@ -141,7 +154,13 @@ impl Wallet {
                 state.scan_block(block)?;
                 count += 1;
             } else {
+                // Get the height at which we've finished syncing the chain
                 let height = state.last_block_height().unwrap_or(0);
+
+                // Update asset registry after finishing sync to the top of the chain
+                self.update_asset_registry().await?;
+                tracing::info!("synced asset registry");
+
                 if !self.initial_sync {
                     tracing::info!(?height, "initial sync complete: ready to process requests");
                 } else {
@@ -236,12 +255,6 @@ impl Wallet {
         Ok(lock)
     }
 
-    pub async fn light_wallet_client(&self) -> Result<LightWalletClient<Channel>, anyhow::Error> {
-        LightWalletClient::connect(format!("http://{}:{}", self.node, self.light_wallet_port))
-            .await
-            .map_err(Into::into)
-    }
-
     /// Submits a transaction to the network, returning `Ok` only when the remote
     /// node has accepted the transaction, and erroring otherwise.
     #[instrument(skip(self, transaction))]
@@ -289,5 +302,56 @@ impl Wallet {
                 log
             ))
         }
+    }
+
+    async fn fetch_chain_params(&mut self) -> anyhow::Result<()> {
+        *self.state().await?.chain_params_mut() = Some(
+            self.light_wallet_client()
+                .await?
+                .chain_params(tonic::Request::new(ChainParamsRequest {
+                    chain_id: self.state().await?.chain_id().unwrap_or_default(),
+                }))
+                .await?
+                .into_inner()
+                .into(),
+        );
+        Ok(())
+    }
+
+    async fn update_asset_registry(&mut self) -> anyhow::Result<()> {
+        let request = tonic::Request::new(AssetListRequest {
+            chain_id: self.state().await?.chain_id().unwrap_or_default(),
+        });
+        let mut stream = self
+            .thin_wallet_client()
+            .await?
+            .asset_list(request)
+            .await?
+            .into_inner();
+        while let Some(asset) = stream.message().await? {
+            self.state()
+                .await?
+                .asset_cache_mut()
+                .extend(std::iter::once(
+                    asset::REGISTRY
+                        .parse_denom(&asset.asset_denom)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("invalid asset denomination: {}", asset.asset_denom)
+                        })?,
+                ));
+        }
+        Ok(())
+    }
+
+    async fn light_wallet_client(&self) -> Result<LightWalletClient<Channel>, anyhow::Error> {
+        LightWalletClient::connect(format!("http://{}:{}", self.node, self.light_wallet_port))
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn thin_wallet_client(&self) -> Result<ThinWalletClient<Channel>, anyhow::Error> {
+        ThinWalletClient::connect(format!("http://{}:{}", self.node, self.thin_wallet_port))
+            .await
+            .map_err(Into::into)
     }
 }
