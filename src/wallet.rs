@@ -127,6 +127,12 @@ impl Wallet {
     /// Syncs blocks until the sync interval times out, then writes the state to disk.
     #[instrument(skip(self))]
     async fn sync(&mut self) -> anyhow::Result<()> {
+        if !self.initial_sync {
+            tracing::info!(
+                "starting initial sync: please wait for sync to complete before requesting tokens"
+            );
+        }
+
         let sync_interval = self.sync_interval;
 
         let mut light_client = self.light_wallet_client().await?;
