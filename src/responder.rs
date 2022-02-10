@@ -138,13 +138,13 @@ impl Responder {
         let message = message.borrow();
 
         // Track addresses to which we successfully dispensed tokens
-        let mut succeeded_addresses = Vec::<Address>::new();
+        let mut succeeded = Vec::<(Address, Vec<Value>)>::new();
 
         // Track addresses (and associated errors) which we tried to send tokens to, but failed
-        let mut failed_addresses = Vec::<(Address, String)>::new();
+        let mut failed = Vec::<(Address, String)>::new();
 
         // Track addresses which couldn't be parsed
-        let mut unparsed_addresses = Vec::<String>::new();
+        let mut unparsed = Vec::<String>::new();
 
         // Extract up to the maximum number of permissible valid addresses from the list
         let mut count = 0;
@@ -158,16 +158,13 @@ impl Responder {
                     let (result, request) = wallet::Request::send(*addr, self.values.clone());
                     self.requests.send(request).await?;
 
-                    // TODO: While this is happening, use the typing indicator API to show that
-                    // something is happening.
-
                     match result.await? {
-                        Ok(()) => succeeded_addresses.push(*addr),
-                        Err(e) => failed_addresses.push((*addr, e.to_string())),
+                        Ok(()) => succeeded.push((*addr, self.values.clone())),
+                        Err(e) => failed.push((*addr, e.to_string())),
                     }
                 }
                 Some(AddressOrAlmost::Almost(addr)) => {
-                    unparsed_addresses.push(addr);
+                    unparsed.push(addr);
                 }
                 None => break,
             }
@@ -178,16 +175,16 @@ impl Responder {
         for addr in addresses {
             match addr {
                 AddressOrAlmost::Address(addr) => remaining_addresses.push(*addr),
-                AddressOrAlmost::Almost(addr) => unparsed_addresses.push(addr),
+                AddressOrAlmost::Almost(addr) => unparsed.push(addr),
             }
         }
 
         // Reply with a summary of what occurred
         let response = self
             .dispense_summary(
-                &succeeded_addresses,
-                &failed_addresses,
-                &unparsed_addresses,
+                &succeeded,
+                &failed,
+                &unparsed,
                 &remaining_addresses,
                 mention_admins,
             )
@@ -198,7 +195,7 @@ impl Responder {
 
     async fn dispense_summary<'a>(
         &mut self,
-        succeeded_addresses: &[Address],
+        succeeded_addresses: &[(Address, Vec<Value>)],
         failed_addresses: &[(Address, String)],
         unparsed_addresses: &[String],
         remaining_addresses: &[Address],
@@ -212,7 +209,7 @@ impl Responder {
 
         if !succeeded_addresses.is_empty() {
             response.push_str("Successfully sent tokens to the following addresses:");
-            for addr in succeeded_addresses {
+            for (addr, _values) in succeeded_addresses {
                 response.push_str(&format!("\n`{}`", addr));
             }
         }
