@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::Parser;
 use directories::ProjectDirs;
 use penumbra_crypto::{Value, Zero};
@@ -56,7 +57,8 @@ impl Serve {
             anyhow::bail!("all values must be non-zero");
         }
 
-        let discord_token = env::var("DISCORD_TOKEN")?;
+        let discord_token =
+            env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
         // Look up the path to the wallet file per platform, creating the directory if needed
         let wallet_file = self.wallet_file.map_or_else(
@@ -109,9 +111,9 @@ impl Serve {
 
         // Start the client and the two workers
         tokio::select! {
-            result = client.start() => result.map_err(Into::into),
-            result = tokio::spawn(responder.run()) => result?,
-            result = tokio::spawn(wallet.run()) => result?,
+            result = client.start() => result.context("discord client error"),
+            result = tokio::spawn(responder.run()) => result.context("responder error")?,
+            result = tokio::spawn(wallet.run()) => result.context("wallet error")?,
         }
     }
 }
