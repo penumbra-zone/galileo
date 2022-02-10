@@ -1,8 +1,9 @@
+use penumbra_crypto::Address;
 use regex::Regex;
 use serenity::model::channel::Message;
 use tokio::sync::oneshot;
 
-use super::{AddressOrAlmost, Response};
+use super::Response;
 
 /// A request to be fulfilled by the responder service.
 #[derive(Debug)]
@@ -13,7 +14,17 @@ pub struct Request {
     pub(super) response: oneshot::Sender<Response>,
 }
 
+/// Either a correctly parsed address, or something that looks almost like it.
+#[derive(Debug, Clone)]
+pub(super) enum AddressOrAlmost {
+    Address(Box<Address>),
+    Almost(String),
+}
+
 impl Request {
+    /// Create a new request by scanning the contents of a [`Message`].
+    ///
+    /// Returns a receiver for the response to this request, as well as the request itself.
     pub fn try_new(message: &Message) -> Option<(oneshot::Receiver<Response>, Request)> {
         let address_regex =
             Regex::new(r"penumbrav\dt1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{126}").unwrap();

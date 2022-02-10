@@ -1,15 +1,26 @@
 use penumbra_crypto::{Address, Value};
 use serenity::{client::Cache, model::id::GuildId, prelude::Mentionable};
 
+/// The response from a request to dispense tokens to a set of addresses.
 #[derive(Debug)]
 pub struct Response {
+    /// The addresses that were successfully dispensed tokens.
     pub(super) succeeded: Vec<(Address, Vec<Value>)>,
+    /// The addresses that failed to be dispensed tokens, accompanied by a string describing the
+    /// error.
     pub(super) failed: Vec<(Address, String)>,
+    /// The addresses that couldn't be parsed.
     pub(super) unparsed: Vec<String>,
+    /// The addresses that were limited from being dispensed tokens because only a certain number
+    /// are permitted to be given tokens per message.
     pub(super) remaining: Vec<Address>,
 }
 
 impl Response {
+    /// Construct a string summarizing the response.
+    ///
+    /// This requires [`Cache`] and a [`GuildId`] so that it can mention the administrator role(s)
+    /// of the server if an error occurred.
     pub async fn summary(&self, cache: impl AsRef<Cache>, guild_id: GuildId) -> String {
         /// Construct a mention for the admin roles for this server
         async fn mention_admins(cache: impl AsRef<Cache>, guild_id: GuildId) -> String {

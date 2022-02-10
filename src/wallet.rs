@@ -19,6 +19,8 @@ use tokio::{
 use tonic::transport::Channel;
 use tracing::instrument;
 
+/// The wallet worker, responsible for periodically synchronizing blocks from the chain and
+/// transmitting transactions to the network.
 #[derive(Debug)]
 pub struct Wallet {
     client_state: Option<ClientState>,
@@ -35,6 +37,7 @@ pub struct Wallet {
     last_saved: Option<Instant>,
 }
 
+/// A request that the wallet dispense the listed tokens to a particular address, using some fee.
 #[derive(Debug)]
 pub struct Request {
     destination: Address,
@@ -61,6 +64,7 @@ impl Request {
 }
 
 impl Wallet {
+    /// Create a new wallet worker.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         client_state_path: PathBuf,
@@ -95,6 +99,7 @@ impl Wallet {
         )
     }
 
+    /// Run the wallet worker.
     pub async fn run(mut self) -> anyhow::Result<()> {
         let wallet_lock = self.lock_wallet().await?; // lock wallet file while running
         let mut sync_duration = None;
@@ -126,7 +131,7 @@ impl Wallet {
         Ok(())
     }
 
-    /// Syncs blocks until the sync interval times out, then writes the state to disk.
+    /// Sync blocks until the sync interval times out, periodically flushing the state to disk.
     #[instrument(skip(self))]
     async fn sync(&mut self) -> anyhow::Result<()> {
         if !*self.initial_sync.borrow() {
@@ -197,6 +202,8 @@ impl Wallet {
         Ok(())
     }
 
+    /// Construct a transaction sending the given values to the given address, with the given fee,
+    /// and transmit it to the network, waiting for it to be accepted.
     #[instrument(skip(self, destination, amounts), fields(%destination))]
     async fn dispense(
         &mut self,
@@ -213,6 +220,10 @@ impl Wallet {
         Ok(())
     }
 
+    /// Get a mutable reference to the client state, loading it from disk if it has not previously
+    /// been loaded from disk.
+    ///
+    /// This will be slow the first time it is run, but every subsequent invocation will be fast.
     async fn state(&mut self) -> anyhow::Result<&mut ClientState> {
         if self.client_state.is_none() {
             tracing::trace!(?self.client_state_path, "reading client state");
@@ -228,6 +239,11 @@ impl Wallet {
         Ok(self.client_state.as_mut().unwrap())
     }
 
+    /// Save the current state to disk, if the last save-time was sufficiently far in the past.
+    ///
+    /// This does not definitely save the state; it may be used liberally, wherever the state is
+    /// changed, because it only does something if the time since the last actual save is greater
+    /// than the save interval.
     #[instrument(skip(self))]
     async fn save_state(&mut self) -> anyhow::Result<()> {
         if let Some(client_state) = &self.client_state {
@@ -261,6 +277,11 @@ impl Wallet {
         Ok(())
     }
 
+    /// Lock the wallet file, returning a [`fslock::LockFile`] object that will hold the lock until
+    /// dropped.
+    ///
+    /// This should be called before changing the contents of the wallet file, to prevent other
+    /// processes from stomping on our changes (i.e. concurrent use of `pcli`).
     async fn lock_wallet(&self) -> anyhow::Result<fslock::LockFile> {
         let path = &self.client_state_path;
 
@@ -331,6 +352,7 @@ impl Wallet {
         }
     }
 
+    /// Fetch the chain parameters if they have not been already fetched, saving them to our state.
     async fn fetch_chain_params(&mut self) -> anyhow::Result<()> {
         if self.state().await?.chain_params().is_none() {
             *self.state().await?.chain_params_mut() = Some(
@@ -349,6 +371,7 @@ impl Wallet {
         Ok(())
     }
 
+    /// Update the asset registry and save it to our state.
     async fn update_asset_registry(&mut self) -> anyhow::Result<()> {
         let request = tonic::Request::new(AssetListRequest {
             chain_id: self.state().await?.chain_id().unwrap_or_default(),
@@ -376,12 +399,14 @@ impl Wallet {
         Ok(())
     }
 
+    /// Make a new light wallet client and return it.
     async fn light_wallet_client(&self) -> Result<LightWalletClient<Channel>, anyhow::Error> {
         LightWalletClient::connect(format!("http://{}:{}", self.node, self.light_wallet_port))
             .await
             .map_err(Into::into)
     }
 
+    /// Make a new thin wallet client and return it.
     async fn thin_wallet_client(&self) -> Result<ThinWalletClient<Channel>, anyhow::Error> {
         ThinWalletClient::connect(format!("http://{}:{}", self.node, self.thin_wallet_port))
             .await

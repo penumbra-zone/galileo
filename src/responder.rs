@@ -5,11 +5,14 @@ use tokio::sync::mpsc;
 use crate::wallet;
 
 mod request;
+pub(self) use request::AddressOrAlmost;
 pub use request::Request;
 
 mod response;
 pub use response::Response;
 
+/// Worker transforming lists of addresses to responses describing whether they were successfully
+/// dispensed tokens.
 pub struct Responder {
     /// Maximum number of addresses to handle per message.
     max_addresses: usize,
@@ -23,7 +26,7 @@ pub struct Responder {
     fee: u64,
 }
 
-/// `TypeMap` key for the address queue.
+/// `TypeMap` key for the address queue (so that `serenity` worker can send to it).
 pub struct RequestQueue;
 
 /// Associate the `AddressQueue` key with an `mpsc::Sender` for `AddressQueueMessage`s in the `TypeMap`.
@@ -31,13 +34,8 @@ impl TypeMapKey for RequestQueue {
     type Value = mpsc::Sender<Request>;
 }
 
-#[derive(Debug, Clone)]
-pub enum AddressOrAlmost {
-    Address(Box<Address>),
-    Almost(String),
-}
-
 impl Responder {
+    /// Create a new responder.
     pub fn new(
         requests: mpsc::Sender<wallet::Request>,
         max_addresses: usize,
@@ -58,6 +56,7 @@ impl Responder {
         )
     }
 
+    /// Run the responder.
     pub async fn run(mut self) -> anyhow::Result<()> {
         while let Some(Request {
             addresses,
@@ -71,6 +70,8 @@ impl Responder {
         Ok(())
     }
 
+    /// Try to dispense tokens to the given addresses, collecting [`Response`] describing what
+    /// happened.
     async fn dispense(&mut self, mut addresses: Vec<AddressOrAlmost>) -> anyhow::Result<Response> {
         // Track addresses to which we successfully dispensed tokens
         let mut succeeded = Vec::<(Address, Vec<Value>)>::new();
