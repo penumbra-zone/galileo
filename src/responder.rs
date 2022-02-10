@@ -157,7 +157,12 @@ impl Responder {
             match addresses.pop() {
                 Some(AddressOrAlmost::Address(addr)) => {
                     // Reply to the originating message with the address
-                    tracing::info!(user_name = ?message.author.name, user_id = ?message.author.id.to_string(), address = ?addr, "sending tokens");
+                    tracing::info!(
+                        user_name = ?message.author.name,
+                        user_id = ?message.author.id.to_string(),
+                        address = %addr,
+                        "requesting tokens"
+                    );
 
                     let (result, request) =
                         wallet::Request::send(*addr, self.values.clone(), self.fee);
