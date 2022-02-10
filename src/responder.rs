@@ -205,15 +205,15 @@ impl Responder {
 
     async fn dispense_summary<'a>(
         &mut self,
-        succeeded_addresses: &[(Address, Vec<Value>)],
-        failed_addresses: &[(Address, String)],
-        unparsed_addresses: &[String],
-        remaining_addresses: &[Address],
+        succeeded: &[(Address, Vec<Value>)],
+        failed: &[(Address, String)],
+        unparsed: &[String],
+        remaining: &[Address],
         mention_admins: impl Future<Output = String> + Send + 'static,
     ) -> String {
-        let succeeded_addresses = succeeded_addresses.borrow();
-        let failed_addresses = failed_addresses.borrow();
-        let remaining_addresses = remaining_addresses.borrow();
+        let succeeded_addresses = succeeded.borrow();
+        let failed_addresses = failed.borrow();
+        let remaining_addresses = remaining.borrow();
 
         let mut response = String::new();
 
@@ -236,12 +236,12 @@ impl Responder {
             ))
         }
 
-        if !unparsed_addresses.is_empty() {
+        if !unparsed.is_empty() {
             response.push_str(
                 "\nThe following _look like_ Penumbra addresses, \
                 but are invalid (maybe a typo or old address version?):",
             );
-            for addr in unparsed_addresses {
+            for addr in unparsed {
                 response.push_str(&format!("\n`{}`", addr));
             }
         }
