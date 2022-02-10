@@ -7,6 +7,7 @@ use penumbra_proto::light_wallet::{
 };
 use penumbra_wallet::ClientState;
 use tokio::{
+    io::AsyncWriteExt,
     sync::{mpsc, oneshot},
     time::{self, Instant},
 };
@@ -71,6 +72,7 @@ impl Wallet {
 
     pub async fn run(mut self) -> anyhow::Result<()> {
         let mut interval = time::interval(self.sync_interval);
+        let wallet_lock = self.lock_wallet().await?; // lock wallet file while running
         loop {
             tokio::select! {
                 _ = interval.tick() => {
@@ -92,6 +94,7 @@ impl Wallet {
                 },
             }
         }
+        drop(wallet_lock);
         Ok(())
     }
 
@@ -120,11 +123,11 @@ impl Wallet {
         let mut count = 0;
         while start.elapsed() < sync_interval {
             if let Some(block) = stream.message().await? {
-                count += 1;
                 if block.height % 1000 == 0 {
                     tracing::debug!(height = ?block.height, ?count, "scanning block");
                 }
                 state.scan_block(block)?;
+                count += 1;
             } else {
                 tracing::debug!(height = ?state.last_block_height(), ?count, "finished sync");
                 self.initial_sync = true;
@@ -144,7 +147,7 @@ impl Wallet {
             tracing::trace!(?self.client_state_path, "reading client state");
             let contents = tokio::fs::read(&self.client_state_path)
                 .await
-                .context("could not read wallet state contents")?;
+                .context("could not read wallet state file")?;
             tracing::trace!("deserializing client state");
             self.client_state = Some(
                 serde_json::from_slice(&contents).context("could not deserialize wallet state")?,
@@ -156,12 +159,44 @@ impl Wallet {
 
     async fn save_state(&self) -> anyhow::Result<()> {
         if let Some(client_state) = &self.client_state {
+            // Serialize the state to a temporary file
+            let tmp_path = self.client_state_path.with_extension("tmp");
             let serialized =
                 serde_json::to_vec(client_state).context("could not serialize wallet state")?;
-            tokio::fs::write(&self.client_state_path, serialized).await?;
+            let mut tmp_file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&tmp_path)
+                .await?;
+            tmp_file.write_all(&serialized).await?;
+
+            // Atomically move the temporary file to the final path
+            tokio::fs::rename(&tmp_path, &self.client_state_path).await?;
         }
 
         Ok(())
+    }
+
+    async fn lock_wallet(&self) -> anyhow::Result<fslock::LockFile> {
+        let path = &self.client_state_path;
+
+        let mut lock = fslock::LockFile::open(&path.with_extension("lock"))?;
+
+        // Try to lock the file and note in the log if we are waiting for another process to finish
+        tracing::debug!(?path, "Locking wallet file");
+        let lock = if !lock.try_lock()? {
+            tracing::info!(?path, "Waiting to acquire lock for wallet");
+            tokio::task::spawn_blocking(move || {
+                lock.lock()?;
+                Ok::<_, anyhow::Error>(lock)
+            })
+            .await??
+        } else {
+            lock
+        };
+
+        Ok(lock)
     }
 
     pub async fn light_wallet_client(&self) -> Result<LightWalletClient<Channel>, anyhow::Error> {

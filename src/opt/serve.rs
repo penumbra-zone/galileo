@@ -7,8 +7,6 @@ use crate::{responder::RequestQueue, Handler, Responder, Wallet};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Serve {
-    /// The amounts to send for each response, written as typed values 1.87penumbra, 12cubes, etc.
-    values: Vec<Value>,
     /// The transaction fee for each response (paid in upenumbra).
     #[structopt(long, default_value = "0")]
     fee: u64,
@@ -34,6 +32,8 @@ pub struct Serve {
     node: String,
     #[clap(long, default_value = "26666")]
     light_wallet_port: u16,
+    /// The amounts to send for each response, written as typed values 1.87penumbra, 12cubes, etc.
+    values: Vec<Value>,
 }
 
 impl Serve {
@@ -50,12 +50,12 @@ impl Serve {
         // Look up the path to the wallet file per platform, creating the directory if needed
         let wallet_file = self.wallet_file.map_or_else(
             || {
-                let project_dir = ProjectDirs::from("zone", "penumbra", "galileo")
-                    .expect("can access penumbra galileo project dir");
+                let project_dir = ProjectDirs::from("zone", "penumbra", "pcli")
+                    .expect("can access penumbra project dir");
                 // Currently we use just the data directory. Create it if it is missing.
                 std::fs::create_dir_all(project_dir.data_dir())
-                    .expect("can create penumbra galileo data directory");
-                project_dir.data_dir().join("penumbra_galileo_wallet.json")
+                    .expect("can create penumbra data directory");
+                project_dir.data_dir().join("penumbra_wallet.json")
             },
             PathBuf::from,
         );

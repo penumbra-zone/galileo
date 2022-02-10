@@ -218,7 +218,7 @@ impl Responder {
         }
 
         if !failed_addresses.is_empty() {
-            response.push_str("Failed to send tokens to the following addresses:\n");
+            response.push_str("Failed to send tokens to the following addresses:");
             for (addr, error) in failed_addresses {
                 response.push_str(&format!("\n`{}` (error: {})", addr, error));
             }
