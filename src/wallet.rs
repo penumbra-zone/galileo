@@ -135,7 +135,11 @@ impl Wallet {
             }
         }
 
-        tracing::debug!(height = ?state.last_block_height(), ?count, "sync continuation queued for next interval");
+        tracing::debug!(
+            height = ?state.last_block_height().unwrap_or(0),
+            ?count,
+            "sync continuation queued for next interval"
+        );
 
         tracing::trace!("saving client state");
         self.save_state().await?;
