@@ -9,7 +9,7 @@ use penumbra_wallet::ClientState;
 use tokio::{
     io::AsyncWriteExt,
     sync::{mpsc, oneshot},
-    time::{self, Instant},
+    time::Instant,
 };
 use tonic::transport::Channel;
 use tracing::instrument;
@@ -71,13 +71,14 @@ impl Wallet {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let mut interval = time::interval(self.sync_interval);
         let wallet_lock = self.lock_wallet().await?; // lock wallet file while running
+        let mut sync_duration = None;
         loop {
             tokio::select! {
-                _ = interval.tick() => {
+                _ = tokio::time::sleep(sync_duration.unwrap_or(Duration::ZERO)) => {
                     tracing::trace!("syncing wallet");
                     self.sync().await?;
+                    sync_duration = Some(self.sync_interval);
                 },
                 request = self.requests.recv() => match request {
                     Some(Request { destination, amounts, result }) => if self.initial_sync {
@@ -123,13 +124,13 @@ impl Wallet {
         let mut count = 0;
         while start.elapsed() < sync_interval {
             if let Some(block) = stream.message().await? {
-                if block.height % 1000 == 0 {
+                if block.height % 100 == 0 {
                     tracing::debug!(height = ?block.height, ?count, "scanning block");
                 }
                 state.scan_block(block)?;
                 count += 1;
             } else {
-                tracing::debug!(height = ?state.last_block_height(), ?count, "finished sync");
+                tracing::debug!(height = ?state.last_block_height().unwrap_or(0), ?count, "finished sync");
                 self.initial_sync = true;
                 return Ok(());
             }
