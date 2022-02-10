@@ -124,22 +124,27 @@ impl Wallet {
         let mut count = 0;
         while start.elapsed() < sync_interval {
             if let Some(block) = stream.message().await? {
-                if block.height % 100 == 0 {
+                if block.height % 1000 == 0 {
                     tracing::debug!(height = ?block.height, ?count, "scanning block");
                 }
                 state.scan_block(block)?;
                 count += 1;
             } else {
-                tracing::debug!(height = ?state.last_block_height().unwrap_or(0), ?count, "finished sync");
+                let height = state.last_block_height().unwrap_or(0);
+                if !self.initial_sync {
+                    tracing::info!(?height, "initial sync complete: ready to process requests");
+                } else {
+                    tracing::debug!(?height, ?count, "finished sync");
+                }
                 self.initial_sync = true;
                 return Ok(());
             }
         }
 
-        tracing::debug!(
+        tracing::info!(
             height = ?state.last_block_height().unwrap_or(0),
             ?count,
-            "sync continuation queued for next interval"
+            "syncing..."
         );
 
         tracing::trace!("saving client state");
