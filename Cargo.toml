@@ -8,9 +8,9 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Penumbra dependencies
-penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra" }
-penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", features = ["sqlx"] }
-penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra" }
+penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "005-mneme"}
+penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "005-mneme", features = ["sqlx"] }
+penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "005-mneme"}
 penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra" }
 
 # External dependencies
