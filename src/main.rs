@@ -10,6 +10,9 @@ pub use opt::Opt;
 mod wallet;
 pub use wallet::Wallet;
 
+mod catchup;
+pub use catchup::Catchup;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
