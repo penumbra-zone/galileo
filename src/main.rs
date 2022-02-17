@@ -5,7 +5,7 @@ mod responder;
 pub use responder::Responder;
 
 mod opt;
-pub use opt::Opt;
+pub use opt::{gather_history, Opt};
 
 mod wallet;
 pub use wallet::Wallet;

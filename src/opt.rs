@@ -6,6 +6,8 @@ use serenity::model::id::{ChannelId, MessageId};
 mod history;
 mod serve;
 
+pub use history::gather as gather_history;
+
 #[derive(Debug, Clone, Parser)]
 #[clap(author, version, about)]
 pub struct Opt {

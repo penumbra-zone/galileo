@@ -7,8 +7,12 @@ use serenity::{
     model::id::{ChannelId, MessageId, UserId},
 };
 use tokio::sync::mpsc;
+use tracing::instrument;
 
-use crate::responder::{Request, Response};
+use crate::{
+    gather_history,
+    responder::{Request, Response},
+};
 
 pub struct Catchup {
     /// The channel id to process.
@@ -37,7 +41,7 @@ impl Catchup {
     }
 
     pub async fn run(self, start_message_id: MessageId) -> anyhow::Result<()> {
-        let results = self.gather(start_message_id);
+        let results = self.gather(start_message_id).await?;
         self.summarize(results).await
     }
 
@@ -83,35 +87,38 @@ impl Catchup {
         Ok(())
     }
 
-    fn gather(
+    #[instrument(skip(self))]
+    async fn gather(
         &self,
-        mut start_message_id: MessageId,
-    ) -> impl Stream<Item = anyhow::Result<(UserId, Response)>> + Send + Unpin + 'static {
+        start: MessageId,
+    ) -> anyhow::Result<
+        impl Stream<Item = anyhow::Result<(UserId, Response)>> + Send + Unpin + 'static,
+    > {
         let requests = self.requests.clone();
-        let http = self.http.clone();
-        let channel_id = self.channel_id;
-
         let mut users: HashSet<UserId> = HashSet::new();
-        Box::pin(try_stream! {
-            loop {
-                let messages = channel_id.messages(http.as_ref(), |retriever| retriever.after(start_message_id)).await?;
-                if messages.is_empty() {
-                    break;
-                }
+        let mut history = gather_history(self.http.clone(), self.channel_id, None, Some(start));
 
-                for message in messages {
-                    if !users.contains(&message.author.id) {
-                        users.insert(message.author.id);
-                        if let Some((response, request)) = Request::try_new(&message) {
-                            tracing::debug!(user_id = ?message.author.id, "performing catch-up distribution");
-                            requests.send(request).await?;
-                            let response = response.await?;
-                            yield (message.author.id, response);
-                        }
-                    }
-                    start_message_id = message.id;
-                }
+        tracing::info!("gathering history to catch up on...");
+        let mut stack = Vec::new();
+        while let Some(result) = history.next().await {
+            let (_, user, _, response, request) = result?;
+            if !users.contains(&user.id) {
+                tracing::debug!(user_name = ?user.name, user_id = ?user.id, "adding request to backlog stack");
+                users.insert(user.id);
+                stack.push((user.id, response, request));
+            } else {
+                tracing::debug!(user_name = ?user.name, user_id = ?user.id, "duplicate request in backlog");
             }
-        })
+        }
+
+        Ok(Box::pin(try_stream! {
+            tracing::info!("submitting backlog to be processed");
+            while let Some((user_id, response, request)) = stack.pop() {
+                tracing::debug!(?user_id, "requesting tokens for backlog");
+                requests.send(request).await?;
+                let response = response.await?;
+                yield (user_id, response);
+            }
+        }))
     }
 }

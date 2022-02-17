@@ -1,7 +1,7 @@
 use std::{env, sync::Arc};
 
 use anyhow::Context;
-use async_stream::try_stream;
+use async_stream::stream;
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use csv_stream as csv;
@@ -27,6 +27,9 @@ pub struct History {
     /// The last message to include in the export (default: latest).
     #[clap(long, short, parse(try_from_str = parse_message_id))]
     before: Option<MessageId>,
+    /// The earliest message to include in the export (default: latest).
+    #[clap(long, short, parse(try_from_str = parse_message_id))]
+    after: Option<MessageId>,
 }
 
 fn parse_message_id(s: &str) -> Result<MessageId, anyhow::Error> {
@@ -52,6 +55,7 @@ impl History {
             client.cache_and_http.http.clone(),
             self.channel,
             self.before,
+            self.after,
         );
 
         #[derive(Serialize)]
@@ -97,10 +101,13 @@ impl History {
     }
 }
 
+// Gather and parse into requests messages in a given channel, streaming the results in reverse
+// chronological order.
 pub fn gather(
     http: Arc<Http>,
     channel_id: ChannelId,
     mut before: Option<MessageId>,
+    after: Option<MessageId>,
 ) -> impl Stream<
     Item = anyhow::Result<(
         DateTime<Utc>,
@@ -112,7 +119,18 @@ pub fn gather(
 > + Send
        + Unpin
        + 'static {
-    Box::pin(try_stream! {
+    Box::pin(stream! {
+        let after_message = if let Some(after) = after {
+            let message = channel_id.message(http.as_ref(), after).await?;
+            if message.channel_id != channel_id {
+                yield Err(anyhow::anyhow!("after message is not in the channel"));
+                return;
+            }
+            Some(message)
+        } else {
+            None
+        };
+
         loop {
             let messages = channel_id.messages(http.as_ref(), |retriever| if let Some(before) = before {
                 retriever.before(before)
@@ -125,7 +143,14 @@ pub fn gather(
 
             for message in messages {
                 if let Some((response, request)) = Request::try_new(&message) {
-                    yield (message.timestamp, message.author, message.id, response, request);
+                    yield Ok((message.timestamp, message.author, message.id, response, request));
+
+                    // Terminate after we see the after-message
+                    if let Some(ref after_message) = after_message {
+                        if message.id == after_message.id {
+                            return;
+                        }
+                    }
                 }
                 before = Some(message.id);
             }
