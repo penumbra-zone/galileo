@@ -56,7 +56,7 @@ impl Catchup {
             for (user_id, _) in batch.drain(..).filter(|(user_id, response)| {
                 let keep = !response.complete_failure();
                 if !keep {
-                    tracing::debug!(?user_id, ?response, "failed to send tokens");
+                    tracing::error!(?user_id, ?response, "failed to send tokens");
                 }
                 keep
             }) {
