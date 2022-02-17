@@ -3,10 +3,11 @@ use clap::Parser;
 use directories::ProjectDirs;
 use futures::{stream::FuturesUnordered, StreamExt};
 use penumbra_crypto::{Value, Zero};
-use serenity::model::id::{ChannelId, MessageId};
-use std::{env, path::PathBuf, str::FromStr, time::Duration};
+use std::{env, path::PathBuf, time::Duration};
 
-use crate::{responder::RequestQueue, Catchup, Handler, Responder, Wallet};
+use crate::{
+    opt::ChannelIdAndMessageId, responder::RequestQueue, Catchup, Handler, Responder, Wallet,
+};
 
 #[derive(Debug, Clone, Parser)]
 pub struct Serve {
@@ -58,28 +59,6 @@ pub struct Serve {
     catch_up_batch_size: usize,
     /// The amounts to send for each response, written as typed values 1.87penumbra, 12cubes, etc.
     values: Vec<Value>,
-}
-
-/// A pair of channel id and message id that uniquely identifies a message.
-#[derive(Debug, Clone)]
-struct ChannelIdAndMessageId {
-    channel_id: ChannelId,
-    message_id: MessageId,
-}
-
-impl FromStr for ChannelIdAndMessageId {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<&str> = s.split('/').collect();
-        match parts.as_slice() {
-            [.., channel_id, message_id] => Ok(ChannelIdAndMessageId {
-                channel_id: channel_id.parse()?,
-                message_id: message_id.parse::<u64>()?.into(),
-            }),
-            _ => Err(anyhow::anyhow!("invalid channel/message id: {}", s)),
-        }
-    }
 }
 
 impl Serve {

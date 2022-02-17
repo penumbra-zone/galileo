@@ -33,6 +33,9 @@ rand = "0.8"
 reqwest = "0.11"
 indexmap = "1.8"
 async-stream = "0.3"
+chrono = "0.4"
+serde = "1"
+csv-stream = "0.1"
 
 [patch.crates-io]
 ark-ff = { git = "https://github.com/penumbra-zone/algebra", branch = "ours" }

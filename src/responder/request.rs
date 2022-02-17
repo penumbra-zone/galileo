@@ -16,12 +16,17 @@ pub struct Request {
 
 /// Either a correctly parsed address, or something that looks almost like it.
 #[derive(Debug, Clone)]
-pub(super) enum AddressOrAlmost {
+pub enum AddressOrAlmost {
     Address(Box<Address>),
     Almost(String),
 }
 
 impl Request {
+    /// Get the parsed addresses from this request.
+    pub fn addresses(&self) -> &[AddressOrAlmost] {
+        &self.addresses
+    }
+
     /// Create a new request by scanning the contents of a [`Message`].
     ///
     /// Returns a receiver for the response to this request, as well as the request itself.

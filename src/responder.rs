@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use crate::wallet;
 
 mod request;
-pub(self) use request::AddressOrAlmost;
+pub(crate) use request::AddressOrAlmost;
 pub use request::Request;
 
 mod response;
