@@ -33,7 +33,11 @@ pub struct History {
 }
 
 fn parse_message_id(s: &str) -> Result<MessageId, anyhow::Error> {
-    Ok(s.parse::<u64>().context("invalid message id")?.into())
+    let parts: Vec<&str> = s.split('/').collect();
+    match parts.as_slice() {
+        [.., message_id] => Ok(MessageId(message_id.parse().context("invalid message id")?)),
+        _ => Err(anyhow::anyhow!("invalid message id")),
+    }
 }
 
 fn parse_channel_id(s: &str) -> Result<ChannelId, anyhow::Error> {
