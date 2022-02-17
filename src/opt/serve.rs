@@ -168,7 +168,9 @@ impl Serve {
             while let Some(result) = catch_ups.next().await {
                 result??;
             }
-            Ok::<_, anyhow::Error>(())
+
+            // Wait forever
+            std::future::pending().await
         });
 
         // Start the client and the two workers
