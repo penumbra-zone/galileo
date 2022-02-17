@@ -218,7 +218,7 @@ fn format_remaining_time(last_fulfilled: Instant, rate_limit: Duration) -> Strin
     humantime::Duration::from(rate_limit - last_fulfilled.elapsed())
         .to_string()
         .split(' ')
-        .take(3)
+        .take(2)
         .collect::<Vec<_>>()
         .join(" ")
 }
