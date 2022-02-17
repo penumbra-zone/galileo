@@ -20,9 +20,7 @@ pub struct Serve {
     /// Maximum number of times to reply to a user informing them of the rate limit.
     #[clap(long, default_value = "5")]
     reply_limit: usize,
-    /// Interval at which to synchronize the bot-owned wallet from the chain.
-    #[clap(long = "sync", default_value = "10s", parse(try_from_str = humantime::parse_duration))]
-    sync_interval: Duration,
+    /// Interval at which to save the wallet state to disk.
     #[clap(long = "save", default_value = "1m", parse(try_from_str = humantime::parse_duration))]
     save_interval: Duration,
     /// Maximum number of addresses per message to which to dispense tokens.
@@ -89,7 +87,6 @@ impl Serve {
         let (wallet_requests, wallet_ready, wallet) = Wallet::new(
             wallet_file,
             self.source_address,
-            self.sync_interval,
             self.save_interval,
             self.buffer_size,
             self.node,
@@ -154,11 +151,9 @@ impl Serve {
 
         // Start the client and the two workers
         tokio::select! {
-            result = client.start() => result.context("discord client error"),
-            result = tokio::spawn(responder.run()) =>
-                result.context("panic in responder service")?.context("error in responder service"),
-            result = tokio::spawn(wallet.run()) =>
-                result.context("panic in wallet service")?.context("error in wallet service"),
+            result = client.start() => result.context("error in discord client service"),
+            result = responder.run() => result.context("error in responder service"),
+            result = wallet.run() => result.context("error in wallet service"),
             result = catch_up => result.context("error in catchup service")?,
         }
     }

@@ -1,10 +1,12 @@
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::Context;
+use derivative::Derivative;
 use penumbra_crypto::{asset, Address, Value};
 use penumbra_proto::{
     light_wallet::{
-        light_wallet_client::LightWalletClient, ChainParamsRequest, CompactBlockRangeRequest,
+        light_wallet_client::LightWalletClient, ChainParamsRequest, CompactBlock,
+        CompactBlockRangeRequest,
     },
     thin_wallet::{thin_wallet_client::ThinWalletClient, AssetListRequest},
 };
@@ -21,13 +23,13 @@ use tracing::instrument;
 
 /// The wallet worker, responsible for periodically synchronizing blocks from the chain and
 /// transmitting transactions to the network.
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Wallet {
     client_state: Option<ClientState>,
     client_state_path: PathBuf,
-    sync_interval: Duration,
     save_interval: Duration,
-    requests: mpsc::Receiver<Request>,
+    requests: Option<mpsc::Receiver<Request>>,
     initial_sync: watch::Sender<bool>,
     node: String,
     light_wallet_port: u16,
@@ -35,6 +37,8 @@ pub struct Wallet {
     rpc_port: u16,
     source: Option<u64>,
     last_saved: Option<Instant>,
+    #[derivative(Debug = "ignore")]
+    blocks: Option<tonic::Streaming<CompactBlock>>,
 }
 
 /// A request that the wallet dispense the listed tokens to a particular address, using some fee.
@@ -69,7 +73,6 @@ impl Wallet {
     pub fn new(
         client_state_path: PathBuf,
         source_address: Option<u64>,
-        sync_interval: Duration,
         save_interval: Duration,
         buffer_size: usize,
         node: String,
@@ -85,9 +88,8 @@ impl Wallet {
             Self {
                 client_state: None,
                 client_state_path,
-                sync_interval,
                 save_interval,
-                requests: rx,
+                requests: Some(rx),
                 initial_sync: watch_tx,
                 node,
                 light_wallet_port,
@@ -95,6 +97,7 @@ impl Wallet {
                 rpc_port,
                 source: source_address,
                 last_saved: None,
+                blocks: None,
             },
         )
     }
@@ -102,22 +105,18 @@ impl Wallet {
     /// Run the wallet worker.
     pub async fn run(mut self) -> anyhow::Result<()> {
         let wallet_lock = self.lock_wallet().await?; // lock wallet file while running
-        let mut sync_duration = None;
         tracing::info!(
             "starting initial sync: please wait for sync to complete before requesting tokens"
         );
+
+        if let Err(e) = self.initial_sync().await {
+            tracing::error!(error = ?e, "initial sync error");
+        }
+
+        let mut requests = self.requests.take().unwrap();
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(sync_duration.unwrap_or(Duration::ZERO)) => {
-                    tracing::trace!("syncing wallet");
-                    if let Err(e) = self.sync().await {
-                        tracing::error!(error = ?e, "sync error");
-                    }
-                    if *self.initial_sync.borrow() {
-                        sync_duration = Some(self.sync_interval);
-                    }
-                },
-                request = self.requests.recv() => match request {
+                request = requests.recv() => match request {
                     Some(Request { destination, amounts, result, fee }) => if *self.initial_sync.borrow() {
                         tracing::trace!("sending back result of request");
                         let _ = result.send(self.dispense(destination, amounts, fee).await);
@@ -130,6 +129,9 @@ impl Wallet {
                         break;
                     }
                 },
+                result = self.sync_one_block() => if let Err(e) = result {
+                    tracing::error!(error = ?e, "sync error");
+                },
             }
         }
         drop(wallet_lock);
@@ -138,11 +140,7 @@ impl Wallet {
 
     /// Sync blocks until the sync interval times out, periodically flushing the state to disk.
     #[instrument(skip(self))]
-    async fn sync(&mut self) -> anyhow::Result<()> {
-        let sync_interval = self.sync_interval;
-
-        let mut light_client = self.light_wallet_client().await?;
-
+    async fn initial_sync(&mut self) -> anyhow::Result<()> {
         // If the wallet does not yet have chain parameters set, update them
         self.fetch_chain_params().await?;
 
@@ -150,34 +148,13 @@ impl Wallet {
         let start = Instant::now();
         tracing::trace!("starting sync");
 
-        let start_height = self
-            .state()
-            .await?
-            .last_block_height()
-            .map(|h| h + 1)
-            .unwrap_or(0);
-        let mut stream = light_client
-            .compact_block_range(tonic::Request::new(CompactBlockRangeRequest {
-                start_height,
-                end_height: 0,
-                chain_id: self
-                    .state()
-                    .await?
-                    .chain_id()
-                    .ok_or_else(|| anyhow::anyhow!("missing chain_id"))?,
-            }))
-            .await?
-            .into_inner();
-
-        let mut count = 0;
-        while start.elapsed() < sync_interval {
-            if let Some(block) = stream.message().await? {
+        loop {
+            if let Some(block) = self.blocks().await?.message().await? {
                 if block.height % 1000 == 0 {
-                    tracing::debug!(height = ?block.height, ?count, "scanning block");
+                    tracing::info!(height = ?block.height, "syncing...");
                 }
                 self.state().await?.scan_block(block)?;
                 self.save_state().await?;
-                count += 1;
             } else {
                 // Get the height at which we've finished syncing the chain
                 let height = self.state().await?.last_block_height().unwrap_or(0);
@@ -185,20 +162,17 @@ impl Wallet {
                 // Update asset registry after finishing sync to the top of the chain
                 self.update_asset_registry().await?;
 
-                if !*self.initial_sync.borrow() {
-                    tracing::info!(?height, "initial sync complete: ready to process requests");
-                } else {
-                    tracing::debug!(?height, ?count, "finished sync");
-                }
+                tracing::info!(
+                    ?height,
+                    elapsed = ?start.elapsed(),
+                    "initial sync complete: ready to process requests"
+                );
+
+                // Notify waiters that initial sync is finished
                 let _ = self.initial_sync.send(true);
                 return Ok(());
             }
         }
-
-        let height = self.state().await?.last_block_height().unwrap_or(0);
-        tracing::info!(?height, ?count, "syncing...");
-
-        Ok(())
     }
 
     /// Construct a transaction sending the given values to the given address, with the given fee,
@@ -236,6 +210,54 @@ impl Wallet {
             tracing::trace!("finished deserializing client state");
         }
         Ok(self.client_state.as_mut().unwrap())
+    }
+
+    /// Scan the next available block into the wallet state.
+    #[instrument(skip(self))]
+    async fn sync_one_block(&mut self) -> anyhow::Result<()> {
+        if let Some(block) = self.blocks().await?.message().await? {
+            if block.height % 1000 == 0 {
+                tracing::debug!(height = ?block.height, "syncing...");
+            }
+            self.state().await?.scan_block(block)?;
+            self.save_state().await?;
+        } else {
+            self.blocks = None;
+        }
+
+        Ok(())
+    }
+
+    /// Get a stream of compact blocks starting at the current wallet height, making a new request
+    /// if necessary.
+    async fn blocks(&mut self) -> anyhow::Result<&mut tonic::Streaming<CompactBlock>> {
+        if self.blocks.is_none() {
+            let start_height = self
+                .state()
+                .await?
+                .last_block_height()
+                .map(|h| h + 1)
+                .unwrap_or(0);
+
+            let stream = self
+                .light_wallet_client()
+                .await?
+                .compact_block_range(tonic::Request::new(CompactBlockRangeRequest {
+                    start_height,
+                    end_height: 0,
+                    chain_id: self
+                        .state()
+                        .await?
+                        .chain_id()
+                        .ok_or_else(|| anyhow::anyhow!("missing chain_id"))?,
+                }))
+                .await?
+                .into_inner();
+
+            self.blocks = Some(stream);
+        }
+
+        Ok(self.blocks.as_mut().unwrap())
     }
 
     /// Save the current state to disk, if the last save-time was sufficiently far in the past.
