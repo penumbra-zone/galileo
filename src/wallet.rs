@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use anyhow::Context;
 use derivative::Derivative;
@@ -21,6 +21,9 @@ use tokio::{
 use tonic::transport::Channel;
 use tracing::instrument;
 
+mod balance;
+use balance::Balance;
+
 /// The wallet worker, responsible for periodically synchronizing blocks from the chain and
 /// transmitting transactions to the network.
 #[derive(Derivative)]
@@ -29,8 +32,9 @@ pub struct Wallet {
     client_state: Option<ClientState>,
     client_state_path: PathBuf,
     save_interval: Duration,
+    block_time_estimate: Duration,
     requests: Option<mpsc::Receiver<Request>>,
-    initial_sync: watch::Sender<bool>,
+    sync: watch::Sender<bool>,
     node: String,
     light_wallet_port: u16,
     thin_wallet_port: u16,
@@ -74,6 +78,7 @@ impl Wallet {
         client_state_path: PathBuf,
         source_address: Option<u64>,
         save_interval: Duration,
+        block_time_estimate: Duration,
         buffer_size: usize,
         node: String,
         light_wallet_port: u16,
@@ -89,8 +94,9 @@ impl Wallet {
                 client_state: None,
                 client_state_path,
                 save_interval,
+                block_time_estimate,
                 requests: Some(rx),
-                initial_sync: watch_tx,
+                sync: watch_tx,
                 node,
                 light_wallet_port,
                 thin_wallet_port,
@@ -116,8 +122,9 @@ impl Wallet {
         let mut requests = self.requests.take().unwrap();
         loop {
             tokio::select! {
+                // Process requests
                 request = requests.recv() => match request {
-                    Some(Request { destination, amounts, result, fee }) => if *self.initial_sync.borrow() {
+                    Some(Request { destination, amounts, result, fee }) => if *self.sync.borrow() {
                         tracing::trace!("sending back result of request");
                         let _ = result.send(self.dispense(destination, amounts, fee).await);
                     } else {
@@ -129,9 +136,8 @@ impl Wallet {
                         break;
                     }
                 },
-                result = self.sync_one_block() => if let Err(e) = result {
-                    tracing::error!(error = ?e, "sync error");
-                },
+                // Continuously synchronize
+                result = self.sync_one_block() => result?,
             }
         }
         drop(wallet_lock);
@@ -169,7 +175,7 @@ impl Wallet {
                 );
 
                 // Notify waiters that initial sync is finished
-                let _ = self.initial_sync.send(true);
+                let _ = self.sync.send(true);
                 return Ok(());
             }
         }
@@ -184,13 +190,87 @@ impl Wallet {
         amounts: Vec<Value>,
         fee: u64,
     ) -> anyhow::Result<()> {
+        let mut sync = self.sync.subscribe();
+        loop {
+            // Get the current balance
+            let balance = self.balance().await?;
+
+            // Calculate whether the spend would be possible with our current balance
+            let mut completely_ready = true;
+            let mut completely_ready_with_change = true;
+
+            for value in amounts.iter() {
+                let ready = balance.ready.get(&value.asset_id).unwrap_or(&0);
+                let change = balance.submitted_change.get(&value.asset_id).unwrap_or(&0);
+
+                if value.amount > *ready {
+                    completely_ready = false;
+                }
+
+                if value.amount > ready + change {
+                    completely_ready_with_change = false;
+                }
+            }
+
+            // If not completely ready, pause and retry
+            if !completely_ready {
+                if completely_ready_with_change {
+                    tracing::debug!("waiting for change...");
+                    // This gets poked every time we sync a new block
+                    let _ = sync.changed().await;
+                } else {
+                    tracing::warn!("not enough funds to complete transaction");
+                    anyhow::bail!("not enough funds to complete transaction");
+                }
+            } else {
+                // If ready, proceed
+                break;
+            }
+        }
+
         let source_address = self.source;
-        let state = self.state().await?;
-        let transaction =
-            state.build_send(&mut OsRng, &amounts, fee, destination, source_address, None)?;
+        let transaction = self.state().await?.build_send(
+            &mut OsRng,
+            &amounts,
+            fee,
+            destination,
+            source_address,
+            None,
+        )?;
         self.submit_transaction(&transaction).await?;
         self.save_state().await?;
         Ok(())
+    }
+
+    /// Get the current balance in the state (does not do synchronization).
+    async fn balance(&mut self) -> anyhow::Result<Balance> {
+        let source = self.source;
+        let mut unspent = self.state().await?.unspent_notes_by_address_and_denom();
+
+        // If only one source address is set, remove all the other notes
+        let unspent = if let Some(source) = source {
+            BTreeMap::from_iter([(source, unspent.remove(&source).unwrap_or_default())].into_iter())
+        } else {
+            unspent
+        };
+
+        let mut balance = Balance::default();
+        for (_, per_address) in unspent {
+            for (denom, notes) in per_address {
+                for note in notes {
+                    use penumbra_wallet::UnspentNote::*;
+                    *match note {
+                        Ready(_) => &mut balance.ready,
+                        SubmittedSpend(_) => &mut balance.submitted_spend,
+                        SubmittedChange(_) => &mut balance.submitted_change,
+                    }
+                    .entry(denom.id())
+                    .or_default() += note.as_ref().value().amount;
+                }
+            }
+        }
+
+        Ok(balance)
     }
 
     /// Get a mutable reference to the client state, loading it from disk if it has not previously
@@ -216,15 +296,14 @@ impl Wallet {
     #[instrument(skip(self))]
     async fn sync_one_block(&mut self) -> anyhow::Result<()> {
         if let Some(block) = self.blocks().await?.message().await? {
-            if block.height % 1000 == 0 {
-                tracing::debug!(height = ?block.height, "syncing...");
-            }
+            tracing::debug!(height = ?block.height, "syncing...");
             self.state().await?.scan_block(block)?;
             self.save_state().await?;
         } else {
             self.blocks = None;
         }
 
+        let _ = self.sync.send(true); // Notify that there's more state, so notes may be available
         Ok(())
     }
 

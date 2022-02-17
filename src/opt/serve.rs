@@ -23,6 +23,8 @@ pub struct Serve {
     /// Interval at which to save the wallet state to disk.
     #[clap(long = "save", default_value = "1m", parse(try_from_str = humantime::parse_duration))]
     save_interval: Duration,
+    #[clap(long, default_value = "10s", parse(try_from_str = humantime::parse_duration))]
+    block_time_estimate: Duration,
     /// Maximum number of addresses per message to which to dispense tokens.
     #[clap(long, default_value = "1")]
     max_addresses: usize,
@@ -88,6 +90,7 @@ impl Serve {
             wallet_file,
             self.source_address,
             self.save_interval,
+            self.block_time_estimate,
             self.buffer_size,
             self.node,
             self.light_wallet_port,
@@ -151,8 +154,10 @@ impl Serve {
 
         // Start the client and the two workers
         tokio::select! {
-            result = client.start() => result.context("error in discord client service"),
-            result = responder.run() => result.context("error in responder service"),
+            result = tokio::spawn(async move { client.start().await }) =>
+                result.unwrap().context("error in discord client service"),
+            result = tokio::spawn(async move { responder.run().await }) =>
+                result.unwrap().context("error in responder service"),
             result = wallet.run() => result.context("error in wallet service"),
             result = catch_up => result.context("error in catchup service")?,
         }
