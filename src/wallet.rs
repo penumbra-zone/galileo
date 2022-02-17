@@ -110,7 +110,9 @@ impl Wallet {
             tokio::select! {
                 _ = tokio::time::sleep(sync_duration.unwrap_or(Duration::ZERO)) => {
                     tracing::trace!("syncing wallet");
-                    self.sync().await?;
+                    if let Err(e) = self.sync().await {
+                        tracing::error!(error = ?e, "sync error");
+                    }
                     if *self.initial_sync.borrow() {
                         sync_duration = Some(self.sync_interval);
                     }
