@@ -32,6 +32,7 @@ pub struct Wallet {
     client_state: Option<ClientState>,
     client_state_path: PathBuf,
     save_interval: Duration,
+    sync_retries: usize,
     block_time_estimate: Duration,
     requests: Option<mpsc::Receiver<Request>>,
     sync: watch::Sender<bool>,
@@ -80,6 +81,7 @@ impl Wallet {
         save_interval: Duration,
         block_time_estimate: Duration,
         buffer_size: usize,
+        sync_retries: usize,
         node: String,
         light_wallet_port: u16,
         thin_wallet_port: u16,
@@ -94,6 +96,7 @@ impl Wallet {
                 client_state: None,
                 client_state_path,
                 save_interval,
+                sync_retries,
                 block_time_estimate,
                 requests: Some(rx),
                 sync: watch_tx,
@@ -137,7 +140,7 @@ impl Wallet {
                     }
                 },
                 // Continuously synchronize
-                result = self.sync_one_block() => result?,
+                result = self.sync_one_block() => { result?; },
             }
         }
         drop(wallet_lock);
@@ -154,31 +157,22 @@ impl Wallet {
         let start = Instant::now();
         tracing::trace!("starting sync");
 
-        loop {
-            if let Some(block) = self.blocks().await?.message().await? {
-                if block.height % 1000 == 0 {
-                    tracing::info!(height = ?block.height, "syncing...");
-                }
-                self.state().await?.scan_block(block)?;
-                self.save_state().await?;
-            } else {
-                // Get the height at which we've finished syncing the chain
-                let height = self.state().await?.last_block_height().unwrap_or(0);
+        // Sync blocks until we finish syncing
+        while !self.sync_one_block().await? {}
 
-                // Update asset registry after finishing sync to the top of the chain
-                self.update_asset_registry().await?;
+        // Get the height at which we've finished syncing the chain
+        let height = self.state().await?.last_block_height().unwrap_or(0);
 
-                tracing::info!(
-                    ?height,
-                    elapsed = ?start.elapsed(),
-                    "initial sync complete: ready to process requests"
-                );
+        // Update asset registry after finishing sync to the top of the chain
+        self.update_asset_registry().await?;
 
-                // Notify waiters that initial sync is finished
-                let _ = self.sync.send(true);
-                return Ok(());
-            }
-        }
+        tracing::info!(
+            ?height,
+            elapsed = ?start.elapsed(),
+            "initial sync complete: ready to process requests"
+        );
+
+        Ok(())
     }
 
     /// Construct a transaction sending the given values to the given address, with the given fee,
@@ -293,18 +287,48 @@ impl Wallet {
     }
 
     /// Scan the next available block into the wallet state.
+    ///
+    /// Returns `true` if it has reached the top of the chain.
     #[instrument(skip(self))]
-    async fn sync_one_block(&mut self) -> anyhow::Result<()> {
-        if let Some(block) = self.blocks().await?.message().await? {
-            tracing::debug!(height = ?block.height, "syncing...");
-            self.state().await?.scan_block(block)?;
-            self.save_state().await?;
-        } else {
-            self.blocks = None;
-        }
+    async fn sync_one_block(&mut self) -> anyhow::Result<bool> {
+        let mut retries = 0;
 
-        let _ = self.sync.send(true); // Notify that there's more state, so notes may be available
-        Ok(())
+        let finished = loop {
+            match self.blocks().await?.message().await {
+                Ok(Some(block)) => {
+                    if block.height % 1000 == 0 {
+                        tracing::info!(height = ?block.height, "syncing...");
+                    } else {
+                        tracing::debug!(height = ?block.height, "syncing...");
+                    }
+                    self.state().await?.scan_block(block)?;
+                    self.save_state().await?;
+                    break false;
+                }
+                Ok(None) => {
+                    self.blocks = None;
+                    break true;
+                }
+                Err(error) => {
+                    if error.code() == tonic::Code::Unavailable {
+                        if retries < self.sync_retries {
+                            tracing::warn!(?error, "error syncing block");
+                            retries += 1;
+                            tokio::time::sleep(self.block_time_estimate).await;
+                        } else {
+                            tracing::error!(?error, ?retries, "error syncing block after retrying");
+                            anyhow::bail!(error);
+                        }
+                    } else {
+                        tracing::error!(?error, "error syncing block");
+                        anyhow::bail!(error);
+                    }
+                }
+            }
+        };
+
+        let _ = self.sync.send(finished); // Notify that there's more state, so notes may be available
+        Ok(finished)
     }
 
     /// Get a stream of compact blocks starting at the current wallet height, making a new request

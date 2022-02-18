@@ -23,8 +23,13 @@ pub struct Serve {
     /// Interval at which to save the wallet state to disk.
     #[clap(long = "save", default_value = "1m", parse(try_from_str = humantime::parse_duration))]
     save_interval: Duration,
+    /// An estimate of the duration for each block (this is used to tune sleeps when retrying
+    /// various operations).
     #[clap(long, default_value = "10s", parse(try_from_str = humantime::parse_duration))]
     block_time_estimate: Duration,
+    /// The number of times to retry when an error happens while communicating with the server.
+    #[clap(long, default_value = "5")]
+    sync_retries: usize,
     /// Maximum number of addresses per message to which to dispense tokens.
     #[clap(long, default_value = "1")]
     max_addresses: usize,
@@ -92,6 +97,7 @@ impl Serve {
             self.save_interval,
             self.block_time_estimate,
             self.buffer_size,
+            self.sync_retries,
             self.node,
             self.light_wallet_port,
             self.thin_wallet_port,
