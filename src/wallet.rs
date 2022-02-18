@@ -32,7 +32,7 @@ pub struct Wallet {
     client_state: Option<ClientState>,
     client_state_path: PathBuf,
     save_interval: Duration,
-    sync_retries: usize,
+    sync_retries: u32,
     block_time_estimate: Duration,
     requests: Option<mpsc::Receiver<Request>>,
     sync: watch::Sender<bool>,
@@ -81,7 +81,7 @@ impl Wallet {
         save_interval: Duration,
         block_time_estimate: Duration,
         buffer_size: usize,
-        sync_retries: usize,
+        sync_retries: u32,
         node: String,
         light_wallet_port: u16,
         thin_wallet_port: u16,
@@ -291,7 +291,7 @@ impl Wallet {
     /// Returns `true` if it has reached the top of the chain.
     #[instrument(skip(self))]
     async fn sync_one_block(&mut self) -> anyhow::Result<bool> {
-        let mut retries = 0;
+        let mut retries: u32 = 0;
 
         let finished = loop {
             match self.blocks().await?.message().await {
@@ -314,7 +314,11 @@ impl Wallet {
                         if retries < self.sync_retries {
                             tracing::warn!(?error, "error syncing block");
                             retries += 1;
-                            tokio::time::sleep(self.block_time_estimate).await;
+
+                            // Exponential backoff up to the retry number
+                            let delay = self.block_time_estimate * 2u32.pow(retries);
+                            let jitter = Duration::from_millis(rand::random::<u64>() % 1000);
+                            tokio::time::sleep(delay + jitter).await;
                         } else {
                             tracing::error!(?error, ?retries, "error syncing block after retrying");
                             anyhow::bail!(error);

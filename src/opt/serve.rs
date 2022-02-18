@@ -29,7 +29,7 @@ pub struct Serve {
     block_time_estimate: Duration,
     /// The number of times to retry when an error happens while communicating with the server.
     #[clap(long, default_value = "5")]
-    sync_retries: usize,
+    sync_retries: u32,
     /// Maximum number of addresses per message to which to dispense tokens.
     #[clap(long, default_value = "1")]
     max_addresses: usize,
