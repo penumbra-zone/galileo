@@ -310,6 +310,9 @@ impl Wallet {
                     break true;
                 }
                 Err(error) => {
+                    // Try a fresh request if we retry
+                    self.blocks = None;
+
                     if error.code() == tonic::Code::Unavailable {
                         if retries < self.sync_retries {
                             tracing::warn!(?error, "error syncing block");
