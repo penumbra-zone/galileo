@@ -301,7 +301,10 @@ impl Wallet {
                     } else {
                         tracing::debug!(height = ?block.height, "syncing...");
                     }
-                    self.state().await?.scan_block(block)?;
+                    self.state()
+                        .await?
+                        .scan_block(block)
+                        .context("invalid block when scanning")?;
                     self.save_state().await?;
                     break false;
                 }
@@ -342,6 +345,8 @@ impl Wallet {
     /// if necessary.
     async fn blocks(&mut self) -> anyhow::Result<&mut tonic::Streaming<CompactBlock>> {
         if self.blocks.is_none() {
+            tracing::debug!("making new block stream request");
+
             let start_height = self
                 .state()
                 .await?
@@ -361,7 +366,8 @@ impl Wallet {
                         .chain_id()
                         .ok_or_else(|| anyhow::anyhow!("missing chain_id"))?,
                 }))
-                .await?
+                .await
+                .context("could not get block stream")?
                 .into_inner();
 
             self.blocks = Some(stream);
@@ -383,6 +389,8 @@ impl Wallet {
                 .map(|i| i.elapsed())
                 .unwrap_or(Duration::MAX);
             if time_since_last_save > self.save_interval {
+                tracing::debug!("saving state");
+
                 // Serialize the state to a temporary file
                 let tmp_path = self.client_state_path.with_extension("tmp");
                 let serialized =
@@ -392,11 +400,17 @@ impl Wallet {
                     .write(true)
                     .truncate(true)
                     .open(&tmp_path)
-                    .await?;
-                tmp_file.write_all(&serialized).await?;
+                    .await
+                    .context("could not open temp file while saving state")?;
+                tmp_file
+                    .write_all(&serialized)
+                    .await
+                    .context("could not write state to temp file")?;
 
                 // Atomically move the temporary file to the final path
-                tokio::fs::rename(&tmp_path, &self.client_state_path).await?;
+                tokio::fs::rename(&tmp_path, &self.client_state_path)
+                    .await
+                    .context("could not overwrite existing state file")?;
 
                 // We last saved now
                 self.last_saved = Some(Instant::now());
@@ -416,7 +430,8 @@ impl Wallet {
     async fn lock_wallet(&self) -> anyhow::Result<fslock::LockFile> {
         let path = &self.client_state_path;
 
-        let mut lock = fslock::LockFile::open(&path.with_extension("lock"))?;
+        let mut lock = fslock::LockFile::open(&path.with_extension("lock"))
+            .context("could not open wallet file lock")?;
 
         // Try to lock the file and note in the log if we are waiting for another process to finish
         tracing::debug!(?path, "locking wallet file");
@@ -426,7 +441,9 @@ impl Wallet {
                 lock.lock()?;
                 Ok::<_, anyhow::Error>(lock)
             })
-            .await??
+            .await
+            .context("panic while trying to lock wallet file")?
+            .context("could not lock wallet file")?
         } else {
             lock
         };
@@ -486,13 +503,15 @@ impl Wallet {
     /// Fetch the chain parameters if they have not been already fetched, saving them to our state.
     async fn fetch_chain_params(&mut self) -> anyhow::Result<()> {
         if self.state().await?.chain_params().is_none() {
+            tracing::info!("fetching chain params");
             *self.state().await?.chain_params_mut() = Some(
                 self.light_wallet_client()
                     .await?
                     .chain_params(tonic::Request::new(ChainParamsRequest {
                         chain_id: self.state().await?.chain_id().unwrap_or_default(),
                     }))
-                    .await?
+                    .await
+                    .context("could not fetch chain params")?
                     .into_inner()
                     .into(),
             );
@@ -504,6 +523,7 @@ impl Wallet {
 
     /// Update the asset registry and save it to our state.
     async fn update_asset_registry(&mut self) -> anyhow::Result<()> {
+        tracing::info!("updating asset registry");
         let request = tonic::Request::new(AssetListRequest {
             chain_id: self.state().await?.chain_id().unwrap_or_default(),
         });
@@ -511,7 +531,8 @@ impl Wallet {
             .thin_wallet_client()
             .await?
             .asset_list(request)
-            .await?
+            .await
+            .context("could not get stream of assets")?
             .into_inner();
         while let Some(asset) = stream.message().await? {
             self.state()
@@ -526,7 +547,7 @@ impl Wallet {
                 ));
         }
         self.save_state().await?;
-        tracing::debug!("synced asset registry");
+        tracing::debug!("updated asset registry");
         Ok(())
     }
 
@@ -534,13 +555,13 @@ impl Wallet {
     async fn light_wallet_client(&self) -> Result<LightWalletClient<Channel>, anyhow::Error> {
         LightWalletClient::connect(format!("http://{}:{}", self.node, self.light_wallet_port))
             .await
-            .map_err(Into::into)
+            .context("could not connect light wallet client")
     }
 
     /// Make a new thin wallet client and return it.
     async fn thin_wallet_client(&self) -> Result<ThinWalletClient<Channel>, anyhow::Error> {
         ThinWalletClient::connect(format!("http://{}:{}", self.node, self.thin_wallet_port))
             .await
-            .map_err(Into::into)
+            .context("could not connect thin wallet client")
     }
 }
