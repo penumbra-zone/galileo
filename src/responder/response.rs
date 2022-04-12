@@ -61,8 +61,7 @@ impl Response {
                 .guild_roles(guild_id)
                 .await
                 .iter()
-                .map(IntoIterator::into_iter)
-                .flatten()
+                .flat_map(IntoIterator::into_iter)
                 .filter(|(_, r)| r.permissions.administrator())
                 .map(|(&id, _)| id)
                 .map(|role_id| role_id.mention().to_string())
