@@ -2,13 +2,13 @@ use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use anyhow::Context;
 use derivative::Derivative;
-use penumbra_crypto::{asset, Address, Value};
+use penumbra_crypto::{Address, Value};
 use penumbra_proto::{
+    chain::CompactBlock,
     light_wallet::{
-        light_wallet_client::LightWalletClient, ChainParamsRequest, CompactBlock,
+        light_wallet_client::LightWalletClient, AssetListRequest, ChainParamsRequest,
         CompactBlockRangeRequest,
     },
-    thin_wallet::{thin_wallet_client::ThinWalletClient, AssetListRequest},
 };
 use penumbra_transaction::Transaction;
 use penumbra_wallet::ClientState;
@@ -303,7 +303,7 @@ impl Wallet {
                     }
                     self.state()
                         .await?
-                        .scan_block(block)
+                        .scan_block(block.try_into()?)
                         .context("invalid block when scanning")?;
                     self.save_state().await?;
                     break false;
@@ -527,25 +527,20 @@ impl Wallet {
         let request = tonic::Request::new(AssetListRequest {
             chain_id: self.state().await?.chain_id().unwrap_or_default(),
         });
-        let mut stream = self
-            .thin_wallet_client()
+        let known_assets = self
+            .light_wallet_client()
             .await?
             .asset_list(request)
             .await
             .context("could not get stream of assets")?
             .into_inner();
-        while let Some(asset) = stream.message().await? {
-            self.state()
-                .await?
-                .asset_cache_mut()
-                .extend(std::iter::once(
-                    asset::REGISTRY
-                        .parse_denom(&asset.asset_denom)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("invalid asset denomination: {}", asset.asset_denom)
-                        })?,
-                ));
-        }
+        self.state().await?.asset_cache_mut().extend(
+            known_assets
+                .assets
+                .into_iter()
+                .filter_map(|a| a.denom)
+                .filter_map(|a| a.try_into().ok()),
+        );
         self.save_state().await?;
         tracing::debug!("updated asset registry");
         Ok(())
@@ -556,12 +551,5 @@ impl Wallet {
         LightWalletClient::connect(format!("http://{}:{}", self.node, self.light_wallet_port))
             .await
             .context("could not connect light wallet client")
-    }
-
-    /// Make a new thin wallet client and return it.
-    async fn thin_wallet_client(&self) -> Result<ThinWalletClient<Channel>, anyhow::Error> {
-        ThinWalletClient::connect(format!("http://{}:{}", self.node, self.thin_wallet_port))
-            .await
-            .context("could not connect thin wallet client")
     }
 }
