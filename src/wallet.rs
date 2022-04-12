@@ -184,7 +184,6 @@ impl Wallet {
         amounts: Vec<Value>,
         fee: u64,
     ) -> anyhow::Result<()> {
-        let mut sync = self.sync.subscribe();
         loop {
             // Get the current balance
             let balance = self.balance().await?;
@@ -210,8 +209,7 @@ impl Wallet {
             if !completely_ready {
                 if completely_ready_with_change {
                     tracing::debug!("waiting for change...");
-                    // This gets poked every time we sync a new block
-                    let _ = sync.changed().await;
+                    self.sync_one_block().await?;
                 } else {
                     tracing::warn!("not enough funds to complete transaction");
                     anyhow::bail!("not enough funds to complete transaction");
