@@ -284,6 +284,14 @@ impl Wallet {
         Ok(self.client_state.as_mut().unwrap())
     }
 
+    /// Do expontential random backoff.
+    async fn backoff(&self, retries: u32) {
+        // Exponential backoff up to the retry number
+        let delay = self.block_time_estimate * 2u32.pow(retries);
+        let jitter = Duration::from_millis(rand::random::<u64>() % 1000);
+        tokio::time::sleep(delay + jitter).await;
+    }
+
     /// Scan the next available block into the wallet state.
     ///
     /// Returns `true` if it has reached the top of the chain.
@@ -318,11 +326,7 @@ impl Wallet {
                         if retries < self.sync_retries {
                             tracing::warn!(?error, "error syncing block");
                             retries += 1;
-
-                            // Exponential backoff up to the retry number
-                            let delay = self.block_time_estimate * 2u32.pow(retries);
-                            let jitter = Duration::from_millis(rand::random::<u64>() % 1000);
-                            tokio::time::sleep(delay + jitter).await;
+                            self.backoff(retries).await;
                         } else {
                             tracing::error!(?error, ?retries, "error syncing block after retrying");
                             anyhow::bail!(error);
@@ -342,6 +346,8 @@ impl Wallet {
     /// Get a stream of compact blocks starting at the current wallet height, making a new request
     /// if necessary.
     async fn blocks(&mut self) -> anyhow::Result<&mut tonic::Streaming<CompactBlock>> {
+        let mut retries = 0;
+
         if self.blocks.is_none() {
             tracing::debug!("making new block stream request");
 
@@ -352,21 +358,44 @@ impl Wallet {
                 .map(|h| h + 1)
                 .unwrap_or(0);
 
-            let stream = self
-                .light_wallet_client()
-                .await?
-                .compact_block_range(tonic::Request::new(CompactBlockRangeRequest {
-                    start_height,
-                    end_height: 0,
-                    chain_id: self
-                        .state()
-                        .await?
-                        .chain_id()
-                        .ok_or_else(|| anyhow::anyhow!("missing chain_id"))?,
-                }))
-                .await
-                .context("could not get block stream")?
-                .into_inner();
+            let stream = loop {
+                match self
+                    .light_wallet_client()
+                    .await?
+                    .compact_block_range(tonic::Request::new(CompactBlockRangeRequest {
+                        start_height,
+                        end_height: 0,
+                        chain_id: self
+                            .state()
+                            .await?
+                            .chain_id()
+                            .ok_or_else(|| anyhow::anyhow!("missing chain_id"))?,
+                    }))
+                    .await
+                    .map(|r| r.into_inner())
+                {
+                    Ok(stream) => break stream,
+                    Err(error) => {
+                        if error.code() == tonic::Code::Unavailable {
+                            if retries < self.sync_retries {
+                                tracing::warn!(?error, "error acquiring block stream");
+                                retries += 1;
+                                self.backoff(retries).await;
+                            } else {
+                                tracing::error!(
+                                    ?error,
+                                    ?retries,
+                                    "error acquiring block stream after retrying"
+                                );
+                                anyhow::bail!(error);
+                            }
+                        } else {
+                            tracing::error!(?error, "error acquiring block stream");
+                            anyhow::bail!(error);
+                        }
+                    }
+                }
+            };
 
             self.blocks = Some(stream);
         }
