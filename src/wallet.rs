@@ -5,10 +5,8 @@ use derivative::Derivative;
 use penumbra_crypto::{Address, Value};
 use penumbra_proto::{
     chain::CompactBlock,
-    light_wallet::{
-        light_wallet_client::LightWalletClient, AssetListRequest, ChainParamsRequest,
-        CompactBlockRangeRequest,
-    },
+    client::oblivious::{AssetListRequest, ChainParamsRequest, CompactBlockRangeRequest},
+    client::oblivious::oblivious_query_client::ObliviousQueryClient as LightWalletClient,
 };
 use penumbra_transaction::Transaction;
 use penumbra_wallet::ClientState;
