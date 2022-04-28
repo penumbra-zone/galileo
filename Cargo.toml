@@ -14,6 +14,8 @@ penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra" }
 penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra" }
 
 # External dependencies
+ark-ff = "0.3"
+ark-serialize = "0.3"
 anyhow = "1"
 directories = "4.0.1"
 regex = "1"
@@ -36,7 +38,3 @@ async-stream = "0.3"
 chrono = "0.4"
 serde = "1"
 csv-stream = "0.1"
-
-[patch.crates-io]
-ark-ff = { git = "https://github.com/penumbra-zone/algebra", branch = "ours" }
-ark-serialize = { git = "https://github.com/penumbra-zone/algebra", branch = "ours" }
