@@ -35,8 +35,7 @@ pub struct Wallet {
     requests: Option<mpsc::Receiver<Request>>,
     sync: watch::Sender<bool>,
     node: String,
-    light_wallet_port: u16,
-    thin_wallet_port: u16,
+    pd_port: u16,
     rpc_port: u16,
     source: Option<u64>,
     last_saved: Option<Instant>,
@@ -81,8 +80,7 @@ impl Wallet {
         buffer_size: usize,
         sync_retries: u32,
         node: String,
-        light_wallet_port: u16,
-        thin_wallet_port: u16,
+        pd_port: u16,
         rpc_port: u16,
     ) -> (mpsc::Sender<Request>, watch::Receiver<bool>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
@@ -99,8 +97,7 @@ impl Wallet {
                 requests: Some(rx),
                 sync: watch_tx,
                 node,
-                light_wallet_port,
-                thin_wallet_port,
+                pd_port,
                 rpc_port,
                 source: source_address,
                 last_saved: None,
@@ -573,7 +570,7 @@ impl Wallet {
 
     /// Make a new light wallet client and return it.
     async fn light_wallet_client(&self) -> Result<LightWalletClient<Channel>, anyhow::Error> {
-        LightWalletClient::connect(format!("http://{}:{}", self.node, self.light_wallet_port))
+        LightWalletClient::connect(format!("http://{}:{}", self.node, self.pd_port))
             .await
             .context("could not connect light wallet client")
     }

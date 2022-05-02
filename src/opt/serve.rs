@@ -42,12 +42,9 @@ pub struct Serve {
     /// The address of the pd+tendermint node.
     #[clap(short, long, default_value = "testnet.penumbra.zone")]
     node: String,
-    /// The port to use to speak to pd's light wallet server.
-    #[clap(long, default_value = "26666")]
-    light_wallet_port: u16,
-    /// The port to use to speak to pd's thin wallet server.
-    #[clap(long, default_value = "26667")]
-    thin_wallet_port: u16,
+    /// The port to use to speak to pd's wallet server.
+    #[clap(long, default_value = "8080")]
+    pd_port: u16,
     /// The port to use to speak to tendermint.
     #[clap(long, default_value = "26657")]
     rpc_port: u16,
@@ -99,8 +96,7 @@ impl Serve {
             self.buffer_size,
             self.sync_retries,
             self.node,
-            self.light_wallet_port,
-            self.thin_wallet_port,
+            self.pd_port,
             self.rpc_port,
         );
 
