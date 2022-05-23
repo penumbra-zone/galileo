@@ -5,8 +5,8 @@ use derivative::Derivative;
 use penumbra_crypto::{Address, Value};
 use penumbra_proto::{
     chain::CompactBlock,
-    client::oblivious::{AssetListRequest, ChainParamsRequest, CompactBlockRangeRequest},
     client::oblivious::oblivious_query_client::ObliviousQueryClient as LightWalletClient,
+    client::oblivious::{AssetListRequest, ChainParamsRequest, CompactBlockRangeRequest},
 };
 use penumbra_transaction::Transaction;
 use penumbra_wallet::ClientState;
@@ -14,7 +14,7 @@ use rand::rngs::OsRng;
 use tokio::{
     io::AsyncWriteExt,
     sync::{mpsc, oneshot, watch},
-    time::Instant,
+    time::{sleep, Instant},
 };
 use tonic::transport::Channel;
 use tracing::instrument;
@@ -216,7 +216,7 @@ impl Wallet {
         }
 
         let source_address = self.source;
-        let transaction = self.state().await?.build_send(
+        let plan = self.state().await?.plan_send(
             &mut OsRng,
             &amounts,
             fee,
@@ -224,7 +224,10 @@ impl Wallet {
             source_address,
             None,
         )?;
+        let transaction = self.state().await?.build_transaction(OsRng, plan)?;
         self.submit_transaction(&transaction).await?;
+        // temp: Remove after wallet refactor. This is to prevent reuse of spent notes.
+        sleep(Duration::from_secs(10)).await;
         self.save_state().await?;
         Ok(())
     }
