@@ -95,6 +95,9 @@ impl Responder {
                         wallet::Request::send(*addr, self.values.clone(), self.fee);
                     self.requests.send(request).await?;
 
+                    // temp: Remove after wallet refactor. This is to prevent reuse of spent notes.
+                    sleep(Duration::from_secs(10)).await;
+
                     match result.await? {
                         Ok(()) => succeeded.push((*addr, self.values.clone())),
                         Err(e) => failed.push((*addr, e.to_string())),
