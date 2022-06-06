@@ -2,15 +2,20 @@ use std::{collections::BTreeMap, path::PathBuf, time::Duration};
 
 use anyhow::Context;
 use derivative::Derivative;
-use penumbra_crypto::{Address, Value};
+use futures::StreamExt;
+use penumbra_crypto::{
+    keys::{SeedPhrase, SpendKey},
+    Address, Value,
+};
 use penumbra_proto::{
     chain::CompactBlock,
-    client::oblivious::oblivious_query_client::ObliviousQueryClient as LightWalletClient,
+    client::oblivious::oblivious_query_client::ObliviousQueryClient,
     client::oblivious::{AssetListRequest, ChainParamsRequest, CompactBlockRangeRequest},
 };
 use penumbra_transaction::Transaction;
-use penumbra_wallet::ClientState;
+use penumbra_view::{Storage as ViewStorage, ViewClient, ViewService};
 use rand::rngs::OsRng;
+use serde::{Deserialize, Serialize};
 use tokio::{
     io::AsyncWriteExt,
     sync::{mpsc, oneshot, watch},
@@ -25,10 +30,12 @@ use balance::Balance;
 /// The wallet worker, responsible for periodically synchronizing blocks from the chain and
 /// transmitting transactions to the network.
 #[derive(Derivative)]
-#[derivative(Debug)]
-pub struct Wallet {
-    client_state: Option<ClientState>,
-    client_state_path: PathBuf,
+// #[derivative(Debug)]
+pub struct WalletWorker<V: ViewClient> {
+    view: V,
+    view_storage: Option<ViewStorage>,
+    view_storage_path: PathBuf,
+    wallet: Wallet,
     save_interval: Duration,
     sync_retries: u32,
     block_time_estimate: Duration,
@@ -69,11 +76,41 @@ impl Request {
     }
 }
 
+/// A wallet file storing a single spend authority.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Wallet {
+    pub spend_key: SpendKey,
+}
+
 impl Wallet {
+    /// Write the wallet data to the provided path.
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+        if path.as_ref().exists() {
+            return Err(anyhow::anyhow!(
+                "Wallet file already exists, refusing to overwrite it"
+            ));
+        }
+        use std::io::Write;
+        let path = path.as_ref();
+        let mut file = std::fs::File::create(path)?;
+        let data = serde_json::to_vec(self)?;
+        file.write_all(&data)?;
+        Ok(())
+    }
+
+    /// Read the wallet data from the provided path.
+    pub fn load(path: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
+        serde_json::from_slice(std::fs::read(path)?.as_slice()).map_err(Into::into)
+    }
+}
+
+impl<V: ViewClient> WalletWorker<V> {
     /// Create a new wallet worker.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        client_state_path: PathBuf,
+        view: V,
+        view_storage_path: PathBuf,
+        wallet: Wallet,
         source_address: Option<u64>,
         save_interval: Duration,
         block_time_estimate: Duration,
@@ -85,12 +122,15 @@ impl Wallet {
     ) -> (mpsc::Sender<Request>, watch::Receiver<bool>, Self) {
         let (tx, rx) = mpsc::channel(buffer_size);
         let (watch_tx, watch_rx) = watch::channel(false);
+
         (
             tx,
             watch_rx,
             Self {
-                client_state: None,
-                client_state_path,
+                view,
+                view_storage: None,
+                view_storage_path,
+                wallet,
                 save_interval,
                 sync_retries,
                 block_time_estimate,
@@ -145,18 +185,28 @@ impl Wallet {
     /// Sync blocks until the sync interval times out, periodically flushing the state to disk.
     #[instrument(skip(self))]
     async fn initial_sync(&mut self) -> anyhow::Result<()> {
-        // If the wallet does not yet have chain parameters set, update them
-        self.fetch_chain_params().await?;
-
-        // Update blocks
         let start = Instant::now();
-        tracing::trace!("starting sync");
+        let fvk = self.wallet.spend_key.full_viewing_key();
+        let mut status_stream = ViewClient::status_stream(&mut self.view, fvk.hash()).await?;
 
-        // Sync blocks until we finish syncing
-        while !self.sync_one_block().await? {}
+        // Pull out the first message from the stream, which has the current state, and use
+        // it to set up a progress bar.
+        let initial_status = status_stream
+            .next()
+            .await
+            .transpose()?
+            .ok_or_else(|| anyhow::anyhow!("view service did not report sync status"))?;
 
-        // Get the height at which we've finished syncing the chain
-        let height = self.state().await?.last_block_height().unwrap_or(0);
+        println!(
+            "Scanning blocks from last sync height {} to latest height {}",
+            initial_status.sync_height, initial_status.latest_known_block_height,
+        );
+
+        let mut height = initial_status.sync_height;
+        while let Some(status) = status_stream.next().await.transpose()? {
+            println!("Scan status: {:#?}", status);
+            height = status.sync_height;
+        }
 
         // Update asset registry after finishing sync to the top of the chain
         self.update_asset_registry().await?;
@@ -356,7 +406,7 @@ impl Wallet {
 
             let stream = loop {
                 match self
-                    .light_wallet_client()
+                    .oblivious_query_client()
                     .await?
                     .compact_block_range(tonic::Request::new(CompactBlockRangeRequest {
                         start_height,
@@ -528,7 +578,7 @@ impl Wallet {
         if self.state().await?.chain_params().is_none() {
             tracing::info!("fetching chain params");
             *self.state().await?.chain_params_mut() = Some(
-                self.light_wallet_client()
+                self.oblivious_query_client()
                     .await?
                     .chain_params(tonic::Request::new(ChainParamsRequest {
                         chain_id: self.state().await?.chain_id().unwrap_or_default(),
@@ -551,7 +601,7 @@ impl Wallet {
             chain_id: self.state().await?.chain_id().unwrap_or_default(),
         });
         let known_assets = self
-            .light_wallet_client()
+            .oblivious_query_client()
             .await?
             .asset_list(request)
             .await
@@ -569,9 +619,9 @@ impl Wallet {
         Ok(())
     }
 
-    /// Make a new light wallet client and return it.
-    async fn light_wallet_client(&self) -> Result<LightWalletClient<Channel>, anyhow::Error> {
-        LightWalletClient::connect(format!("http://{}:{}", self.node, self.pd_port))
+    /// Make a new oblivious query client and return it.
+    async fn oblivious_query_client(&self) -> Result<ObliviousQueryClient<Channel>, anyhow::Error> {
+        ObliviousQueryClient::connect(format!("http://{}:{}", self.node, self.pd_port))
             .await
             .context("could not connect light wallet client")
     }
