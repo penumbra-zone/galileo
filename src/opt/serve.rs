@@ -31,28 +31,12 @@ pub struct Serve {
     /// Maximum number of times to reply to a user informing them of the rate limit.
     #[clap(long, default_value = "5")]
     reply_limit: usize,
-    /// Interval at which to save the wallet state to disk.
-    #[clap(long = "save", default_value = "1m", parse(try_from_str = humantime::parse_duration))]
-    save_interval: Duration,
-    /// An estimate of the duration for each block (this is used to tune sleeps when retrying
-    /// various operations).
-    #[clap(long, default_value = "10s", parse(try_from_str = humantime::parse_duration))]
-    block_time_estimate: Duration,
-    /// The number of times to retry when an error happens while communicating with the server.
-    #[clap(long, default_value = "5")]
-    sync_retries: u32,
     /// Maximum number of addresses per message to which to dispense tokens.
     #[clap(long, default_value = "1")]
     max_addresses: usize,
-    /// Internal buffer size for the queue of actions to perform.
-    #[clap(long, default_value = "100")]
-    buffer_size: usize,
-    /// Path to the view state file to use [default: platform appdata directory].
+    /// Path to the directory to use to store data [default: platform appdata directory].
     #[clap(long, short)]
-    view_file: Option<PathBuf>,
-    /// Path to the custody service state file to use [default: platform appdata directory].
-    #[clap(long, short)]
-    custody_file: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
     /// The address of the pd+tendermint node.
     #[clap(short, long, default_value = "testnet.penumbra.zone")]
     node: String,
@@ -89,28 +73,16 @@ impl Serve {
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
         // Look up the path to the view state file per platform, creating the directory if needed
-        let view_file = self.view_file.map_or_else(
-            || {
-                let project_dir = ProjectDirs::from("zone", "penumbra", "pcli")
-                    .expect("can access penumbra project dir");
-                // Currently we use just the data directory. Create it if it is missing.
-                std::fs::create_dir_all(project_dir.data_dir())
-                    .expect("can create penumbra data directory");
-                project_dir.data_dir().join("pcli-view.sqlite")
-            },
-            PathBuf::from,
-        );
-        let custody_file = self.custody_file.map_or_else(
-            || {
-                let project_dir = ProjectDirs::from("zone", "penumbra", "pcli")
-                    .expect("can access penumbra project dir");
-                // Currently we use just the data directory. Create it if it is missing.
-                std::fs::create_dir_all(project_dir.data_dir())
-                    .expect("can create penumbra data directory");
-                project_dir.data_dir().join("custody.json")
-            },
-            PathBuf::from,
-        );
+        let data_dir = self.data_dir.unwrap_or_else(|| {
+            ProjectDirs::from("zone", "penumbra", "pcli")
+                .expect("can access penumbra project dir")
+                .data_dir()
+                .to_owned()
+        });
+        std::fs::create_dir_all(data_dir).context("can create data dir")?;
+
+        let view_file = data_dir.join("pcli-view.sqlite");
+        let custody_file = data_dir.join("custody.json");
 
         // Build a custody service...
         let wallet = Wallet::load(custody_file)?;
