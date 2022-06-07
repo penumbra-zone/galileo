@@ -79,9 +79,11 @@ impl Catchup {
         }
         if !response_batch.is_empty() {
             let notification = notification(&mut response_batch);
-            self.channel_id
-                .send_message(self.http.as_ref(), |m| m.content(notification))
-                .await?;
+            tracing::debug!("Would send notification {}", notification);
+            // TODO: disabled summaries to stop spamming channel during testing
+            // self.channel_id
+            //     .send_message(self.http.as_ref(), |m| m.content(notification))
+            //     .await?;
         }
 
         Ok(())

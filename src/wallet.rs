@@ -257,12 +257,11 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
         //     if completely_ready_with_change {
         //         tracing::debug!("waiting for change...");
         //         // TODO: remove??
-        //         // self.sync_one_block().await?;
+        //         self.sync_one_block().await?;
         //     } else {
         //         // TODO: this was being used for checking that change was returned from the transaction
-        //         tracing::debug!("unimplemented: change checking");
-        //         // tracing::warn!("not enough funds to complete transaction");
-        //         // anyhow::bail!("not enough funds to complete transaction");
+        //         tracing::warn!("not enough funds to complete transaction");
+        //         anyhow::bail!("not enough funds to complete transaction");
         //     }
         // } else {
         //     // If ready, proceed
