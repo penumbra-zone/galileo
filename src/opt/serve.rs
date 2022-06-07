@@ -140,6 +140,7 @@ impl Serve {
         // Make a worker to handle the wallet
         let (wallet_requests, wallet_ready, wallet_worker) = WalletWorker::new(
             view,
+            custody,
             view_file,
             wallet,
             self.source_address,
