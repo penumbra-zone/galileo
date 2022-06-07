@@ -169,7 +169,7 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
                 request = requests.recv() => match request {
                     // TODO: do we need to block on sync here like the old galileo did?
                     Some(Request { destination, amounts, result, fee }) => {
-                        tracing::trace!("sending back result of request");
+                        tracing::debug!("sending back result of request");
                         let _ = result.send(self.dispense(destination, amounts, fee).await);
                     }
                     None => {
@@ -230,6 +230,7 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
         amounts: Vec<Value>,
         fee: u64,
     ) -> anyhow::Result<()> {
+        tracing::debug!("Dispensing...");
         // TODO: reimplement readiness checking and re-enable this loop
         // loop {
         // Get the current balance
@@ -283,9 +284,11 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
             None,
         )
         .await?;
+        tracing::debug!("plan: {:#?}", plan);
 
         let transaction =
             build_transaction(fvk, &mut self.view, &mut self.custody, OsRng, plan).await?;
+        tracing::debug!("transaction: {:#?}", transaction);
         self.submit_transaction(&transaction).await?;
         // self.save_state().await?;
         Ok(())
