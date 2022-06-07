@@ -167,12 +167,10 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
             tokio::select! {
                 // Process requests
                 request = requests.recv() => match request {
-                    Some(Request { destination, amounts, result, fee }) => if *self.sync.borrow() {
+                    // TODO: do we need to block on sync here like the old galileo did?
+                    Some(Request { destination, amounts, result, fee }) => {
                         tracing::trace!("sending back result of request");
                         let _ = result.send(self.dispense(destination, amounts, fee).await);
-                    } else {
-                        tracing::trace!("waiting for initial sync");
-                        let _ = result.send(Err(anyhow::anyhow!("still performing initial sync, please wait")));
                     }
                     None => {
                         tracing::trace!("wallet request senders all dropped");
