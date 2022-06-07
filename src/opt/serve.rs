@@ -1,7 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
 use directories::ProjectDirs;
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use penumbra_crypto::{Value, Zero};
 use penumbra_custody::SoftHSM;
 use penumbra_proto::{
@@ -12,7 +12,7 @@ use penumbra_proto::{
     },
     view::{view_protocol_client::ViewProtocolClient, view_protocol_server::ViewProtocolServer},
 };
-use penumbra_view::ViewService;
+use penumbra_view::{ViewClient, ViewService};
 use std::{env, path::PathBuf, time::Duration};
 
 use crate::{
@@ -107,7 +107,14 @@ impl Serve {
             ViewService::new(view_storage, oc_client, self.node.clone(), self.rpc_port).await?;
 
         // Now build the view and custody clients, doing gRPC with ourselves
-        let view = ViewProtocolClient::new(ViewProtocolServer::new(view_service));
+        let mut view = ViewProtocolClient::new(ViewProtocolServer::new(view_service));
+
+        // Wait to synchronize the chain before doing anything else.
+        ViewClient::status_stream(&mut view, fvk.hash())
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        // From this point on, the view service is synchronized.
 
         // Make a worker to handle the wallet
         let (wallet_requests, wallet_ready, wallet_worker) = WalletWorker::new(
