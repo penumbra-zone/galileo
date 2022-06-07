@@ -41,11 +41,10 @@ impl Responder {
     pub fn new(
         requests: mpsc::Sender<wallet::Request>,
         max_addresses: usize,
-        buffer_size: usize,
         values: Vec<Value>,
         fee: u64,
     ) -> (mpsc::Sender<Request>, Self) {
-        let (tx, rx) = mpsc::channel(buffer_size);
+        let (tx, rx) = mpsc::channel(10);
         (
             tx,
             Responder {

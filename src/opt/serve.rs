@@ -79,10 +79,10 @@ impl Serve {
                 .data_dir()
                 .to_owned()
         });
-        std::fs::create_dir_all(data_dir).context("can create data dir")?;
+        std::fs::create_dir_all(&data_dir).context("can create data dir")?;
 
-        let view_file = data_dir.join("pcli-view.sqlite");
-        let custody_file = data_dir.join("custody.json");
+        let view_file = data_dir.clone().join("pcli-view.sqlite");
+        let custody_file = data_dir.clone().join("custody.json");
 
         // Build a custody service...
         let wallet = Wallet::load(custody_file)?;
@@ -110,6 +110,9 @@ impl Serve {
         let mut view = ViewProtocolClient::new(ViewProtocolServer::new(view_service));
 
         // Wait to synchronize the chain before doing anything else.
+        tracing::info!(
+            "starting initial sync: please wait for sync to complete before requesting tokens"
+        );
         ViewClient::status_stream(&mut view, fvk.hash())
             .await?
             .try_collect::<Vec<_>>()
@@ -117,31 +120,20 @@ impl Serve {
         // From this point on, the view service is synchronized.
 
         // Make a worker to handle the wallet
-        let (wallet_requests, wallet_ready, wallet_worker) = WalletWorker::new(
+        let (wallet_requests, wallet_worker) = WalletWorker::new(
             view,
             custody,
-            view_file,
-            wallet,
+            fvk,
             self.source_address,
-            self.save_interval,
-            self.block_time_estimate,
-            self.buffer_size,
-            self.sync_retries,
             self.node,
-            self.pd_port,
             self.rpc_port,
         );
 
         // Make a worker to handle the address queue
-        let (send_requests, responder) = Responder::new(
-            wallet_requests,
-            self.max_addresses,
-            self.buffer_size,
-            self.values,
-            self.fee,
-        );
+        let (send_requests, responder) =
+            Responder::new(wallet_requests, self.max_addresses, self.values, self.fee);
 
-        let handler = Handler::new(self.rate_limit, self.reply_limit, wallet_ready);
+        let handler = Handler::new(self.rate_limit, self.reply_limit);
 
         // Make a new client using a token set by an environment variable, with our handlers
         let mut client = serenity::Client::builder(&discord_token)

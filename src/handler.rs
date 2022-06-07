@@ -12,10 +12,7 @@ use serenity::{
         id::{GuildId, UserId},
     },
 };
-use tokio::{
-    sync::watch,
-    time::{Duration, Instant},
-};
+use tokio::time::{Duration, Instant};
 
 use super::responder::{Request, RequestQueue};
 
@@ -28,20 +25,13 @@ pub struct Handler {
     /// times we've told the user about the rate limit (so that eventually we can stop replying if
     /// they keep asking).
     send_history: Arc<Mutex<VecDeque<(UserId, Instant, usize)>>>,
-    /// Watch whether the wallet is ready to receive requests.
-    wallet_ready: watch::Receiver<bool>,
 }
 
 impl Handler {
-    pub fn new(
-        rate_limit: Duration,
-        reply_limit: usize,
-        wallet_ready: watch::Receiver<bool>,
-    ) -> Self {
+    pub fn new(rate_limit: Duration, reply_limit: usize) -> Self {
         Handler {
             rate_limit,
             reply_limit,
-            wallet_ready,
             send_history: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
@@ -148,17 +138,6 @@ impl EventHandler for Handler {
             reply(&ctx, message, response).await;
 
             return;
-        }
-
-        // Wait for the wallet to be ready
-        let mut wallet_ready = self.wallet_ready.clone();
-        loop {
-            if let Err(e) = wallet_ready.changed().await {
-                tracing::error!(error = ?e, "wallet worker stopped");
-            }
-            if *wallet_ready.borrow() {
-                break;
-            }
         }
 
         // Push the user into the send history queue for rate-limiting in the future
