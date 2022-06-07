@@ -230,44 +230,45 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
         amounts: Vec<Value>,
         fee: u64,
     ) -> anyhow::Result<()> {
-        loop {
-            // Get the current balance
-            let balance = self.balance().await?;
+        // TODO: reimplement readiness checking and re-enable this loop
+        // loop {
+        // Get the current balance
+        let balance = self.balance().await?;
 
-            // Calculate whether the spend would be possible with our current balance
-            let mut completely_ready = true;
-            let mut completely_ready_with_change = true;
+        // Calculate whether the spend would be possible with our current balance
+        let mut completely_ready = true;
+        let mut completely_ready_with_change = true;
 
-            for value in amounts.iter() {
-                let ready = balance.ready.get(&value.asset_id).unwrap_or(&0);
-                let change = balance.submitted_change.get(&value.asset_id).unwrap_or(&0);
+        for value in amounts.iter() {
+            let ready = balance.ready.get(&value.asset_id).unwrap_or(&0);
+            let change = balance.submitted_change.get(&value.asset_id).unwrap_or(&0);
 
-                if value.amount > *ready {
-                    completely_ready = false;
-                }
-
-                if value.amount > ready + change {
-                    completely_ready_with_change = false;
-                }
+            if value.amount > *ready {
+                completely_ready = false;
             }
 
-            // If not completely ready, pause and retry
-            if !completely_ready {
-                if completely_ready_with_change {
-                    tracing::debug!("waiting for change...");
-                    // TODO: remove??
-                    // self.sync_one_block().await?;
-                } else {
-                    // TODO: this was being used for checking that change was returned from the transaction
-                    tracing::debug!("unimplemented: change checking");
-                    // tracing::warn!("not enough funds to complete transaction");
-                    // anyhow::bail!("not enough funds to complete transaction");
-                }
-            } else {
-                // If ready, proceed
-                break;
+            if value.amount > ready + change {
+                completely_ready_with_change = false;
             }
         }
+
+        // If not completely ready, pause and retry
+        // if !completely_ready {
+        //     if completely_ready_with_change {
+        //         tracing::debug!("waiting for change...");
+        //         // TODO: remove??
+        //         // self.sync_one_block().await?;
+        //     } else {
+        //         // TODO: this was being used for checking that change was returned from the transaction
+        //         tracing::debug!("unimplemented: change checking");
+        //         // tracing::warn!("not enough funds to complete transaction");
+        //         // anyhow::bail!("not enough funds to complete transaction");
+        //     }
+        // } else {
+        //     // If ready, proceed
+        //     break;
+        // }
+        // }
 
         let source_address = self.source;
 
