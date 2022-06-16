@@ -100,11 +100,12 @@ impl Serve {
                 .ok_or_else(|| anyhow::anyhow!("Non-UTF8 view path"))?
                 .to_string(),
             &fvk,
-            &mut oc_client,
+            self.node.clone(),
+            self.pd_port,
         )
         .await?;
         let view_service =
-            ViewService::new(view_storage, oc_client, self.node.clone(), self.rpc_port).await?;
+            ViewService::new(view_storage, self.node.clone(), self.pd_port, self.rpc_port).await?;
 
         // Now build the view and custody clients, doing gRPC with ourselves
         let mut view = ViewProtocolClient::new(ViewProtocolServer::new(view_service));
