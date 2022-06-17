@@ -1,12 +1,23 @@
 use anyhow::Context;
 use clap::Parser;
 use directories::ProjectDirs;
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use penumbra_crypto::{Value, Zero};
+use penumbra_custody::SoftHSM;
+use penumbra_proto::{
+    client::oblivious::oblivious_query_client::ObliviousQueryClient,
+    custody::{
+        custody_protocol_client::CustodyProtocolClient,
+        custody_protocol_server::CustodyProtocolServer,
+    },
+    view::{view_protocol_client::ViewProtocolClient, view_protocol_server::ViewProtocolServer},
+};
+use penumbra_view::{ViewClient, ViewService};
 use std::{env, path::PathBuf, time::Duration};
 
 use crate::{
-    opt::ChannelIdAndMessageId, responder::RequestQueue, Catchup, Handler, Responder, Wallet,
+    opt::ChannelIdAndMessageId, responder::RequestQueue, wallet::WalletWorker, Catchup, Handler,
+    Responder, Wallet,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -20,29 +31,16 @@ pub struct Serve {
     /// Maximum number of times to reply to a user informing them of the rate limit.
     #[clap(long, default_value = "5")]
     reply_limit: usize,
-    /// Interval at which to save the wallet state to disk.
-    #[clap(long = "save", default_value = "1m", parse(try_from_str = humantime::parse_duration))]
-    save_interval: Duration,
-    /// An estimate of the duration for each block (this is used to tune sleeps when retrying
-    /// various operations).
-    #[clap(long, default_value = "10s", parse(try_from_str = humantime::parse_duration))]
-    block_time_estimate: Duration,
-    /// The number of times to retry when an error happens while communicating with the server.
-    #[clap(long, default_value = "5")]
-    sync_retries: u32,
     /// Maximum number of addresses per message to which to dispense tokens.
     #[clap(long, default_value = "1")]
     max_addresses: usize,
-    /// Internal buffer size for the queue of actions to perform.
-    #[clap(long, default_value = "100")]
-    buffer_size: usize,
-    /// Path to the wallet file to use [default: platform appdata directory].
+    /// Path to the directory to use to store data [default: platform appdata directory].
     #[clap(long, short)]
-    wallet_file: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
     /// The address of the pd+tendermint node.
     #[clap(short, long, default_value = "testnet.penumbra.zone")]
     node: String,
-    /// The port to use to speak to pd's wallet server.
+    /// The port to use to speak to pd's gRPC server.
     #[clap(long, default_value = "8080")]
     pd_port: u16,
     /// The port to use to speak to tendermint.
@@ -74,42 +72,69 @@ impl Serve {
         let discord_token =
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
-        // Look up the path to the wallet file per platform, creating the directory if needed
-        let wallet_file = self.wallet_file.map_or_else(
-            || {
-                let project_dir = ProjectDirs::from("zone", "penumbra", "pcli")
-                    .expect("can access penumbra project dir");
-                // Currently we use just the data directory. Create it if it is missing.
-                std::fs::create_dir_all(project_dir.data_dir())
-                    .expect("can create penumbra data directory");
-                project_dir.data_dir().join("penumbra_wallet.json")
-            },
-            PathBuf::from,
+        // Look up the path to the view state file per platform, creating the directory if needed
+        let data_dir = self.data_dir.unwrap_or_else(|| {
+            ProjectDirs::from("zone", "penumbra", "pcli")
+                .expect("can access penumbra project dir")
+                .data_dir()
+                .to_owned()
+        });
+        std::fs::create_dir_all(&data_dir).context("can create data dir")?;
+
+        let view_file = data_dir.clone().join("pcli-view.sqlite");
+        let custody_file = data_dir.clone().join("custody.json");
+
+        // Build a custody service...
+        let wallet = Wallet::load(custody_file)?;
+        let soft_hsm = SoftHSM::new(vec![wallet.spend_key.clone()]);
+        let custody = CustodyProtocolClient::new(CustodyProtocolServer::new(soft_hsm));
+
+        let fvk = wallet.spend_key.full_viewing_key().clone();
+
+        // Instantiate an in-memory view service.
+        let mut oc_client =
+            ObliviousQueryClient::connect(format!("http://{}:{}", self.node, self.pd_port)).await?;
+        let view_storage = penumbra_view::Storage::load_or_initialize(
+            view_file
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Non-UTF8 view path"))?
+                .to_string(),
+            &fvk,
+            self.node.clone(),
+            self.pd_port,
+        )
+        .await?;
+        let view_service =
+            ViewService::new(view_storage, self.node.clone(), self.pd_port, self.rpc_port).await?;
+
+        // Now build the view and custody clients, doing gRPC with ourselves
+        let mut view = ViewProtocolClient::new(ViewProtocolServer::new(view_service));
+
+        // Wait to synchronize the chain before doing anything else.
+        tracing::info!(
+            "starting initial sync: please wait for sync to complete before requesting tokens"
         );
+        ViewClient::status_stream(&mut view, fvk.hash())
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        // From this point on, the view service is synchronized.
 
         // Make a worker to handle the wallet
-        let (wallet_requests, wallet_ready, wallet) = Wallet::new(
-            wallet_file,
+        let (wallet_requests, wallet_worker) = WalletWorker::new(
+            view,
+            custody,
+            fvk,
             self.source_address,
-            self.save_interval,
-            self.block_time_estimate,
-            self.buffer_size,
-            self.sync_retries,
             self.node,
-            self.pd_port,
             self.rpc_port,
         );
 
         // Make a worker to handle the address queue
-        let (send_requests, responder) = Responder::new(
-            wallet_requests,
-            self.max_addresses,
-            self.buffer_size,
-            self.values,
-            self.fee,
-        );
+        let (send_requests, responder) =
+            Responder::new(wallet_requests, self.max_addresses, self.values, self.fee);
 
-        let handler = Handler::new(self.rate_limit, self.reply_limit, wallet_ready);
+        let handler = Handler::new(self.rate_limit, self.reply_limit);
 
         // Make a new client using a token set by an environment variable, with our handlers
         let mut client = serenity::Client::builder(&discord_token)
@@ -160,7 +185,7 @@ impl Serve {
                 result.unwrap().context("error in discord client service"),
             result = tokio::spawn(async move { responder.run().await }) =>
                 result.unwrap().context("error in responder service"),
-            result = wallet.run() => result.context("error in wallet service"),
+            result = wallet_worker.run() => result.context("error in wallet service"),
             result = catch_up => result.context("error in catchup service")?,
         }
     }
