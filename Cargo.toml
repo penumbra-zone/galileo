@@ -8,12 +8,12 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Penumbra dependencies
-penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "021-eurydome" }
-penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "021-eurydome" }
-penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra", tag = "021-eurydome" }
-penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "021-eurydome" }
-penumbra-view = { git = "https://github.com/penumbra-zone/penumbra", tag = "021-eurydome" }
-penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", tag = "021-eurydome" }
+penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "022-hegemone" }
+penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "022-hegemone" }
+penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra", tag = "022-hegemone" }
+penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "022-hegemone" }
+penumbra-view = { git = "https://github.com/penumbra-zone/penumbra", tag = "022-hegemone" }
+penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", tag = "022-hegemone" }
 
 # External dependencies
 ark-ff = "0.3"
