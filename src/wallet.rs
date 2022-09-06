@@ -1,5 +1,5 @@
 use derivative::Derivative;
-use penumbra_crypto::{keys::SpendKey, Address, FullViewingKey, Value};
+use penumbra_crypto::{keys::SpendKey, transaction::Fee, Address, FullViewingKey, Value};
 use penumbra_custody::CustodyClient;
 use penumbra_transaction::Transaction;
 use penumbra_view::ViewClient;
@@ -126,7 +126,7 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
             &mut self.view,
             OsRng,
             &amounts,
-            fee,
+            Fee::from_staking_token_amount(fee),
             destination,
             source_address,
             None,
