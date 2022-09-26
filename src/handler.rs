@@ -48,20 +48,20 @@ impl EventHandler for Handler {
         };
 
         // Get the channel of this message
-        let guild_channel =
-            if let Some(guild_channel) = ctx.cache.guild_channel(message.channel_id).await {
-                guild_channel
-            } else {
-                tracing::trace!("could not find server");
-                return;
-            };
+        let guild_channel = if let Some(guild_channel) = ctx.cache.guild_channel(message.channel_id)
+        {
+            guild_channel
+        } else {
+            tracing::trace!("could not find server");
+            return;
+        };
 
-        let self_id = ctx.cache.current_user().await.id;
+        let self_id = ctx.cache.current_user().id;
         let user_id = message.author.id;
         let user_name = message.author.name.clone();
 
         // Stop if we're not allowed to respond in this channel
-        if let Ok(self_permissions) = guild_channel.permissions_for_user(&ctx, self_id).await {
+        if let Ok(self_permissions) = guild_channel.permissions_for_user(&ctx, self_id) {
             if !self_permissions.send_messages() {
                 tracing::trace!(
                     ?guild_channel,
@@ -173,7 +173,6 @@ impl EventHandler for Handler {
         for guild_id in guilds {
             let server_name = guild_id
                 .name(&ctx.cache)
-                .await
                 .unwrap_or_else(|| "[unknown]".to_string());
             tracing::info!(
                 ?server_name,

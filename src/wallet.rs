@@ -126,7 +126,7 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
             &mut self.view,
             OsRng,
             &amounts,
-            Fee::from_staking_token_amount(fee),
+            Fee::from_staking_token_amount(fee.into()),
             destination,
             source_address,
             None,

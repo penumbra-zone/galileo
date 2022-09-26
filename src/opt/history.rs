@@ -2,7 +2,6 @@ use std::{env, sync::Arc};
 
 use anyhow::Context;
 use async_stream::stream;
-use chrono::{DateTime, Utc};
 use clap::Parser;
 use csv_stream as csv;
 use futures::{Stream, StreamExt};
@@ -13,7 +12,9 @@ use serenity::{
     model::{
         id::{ChannelId, MessageId, UserId},
         prelude::User,
+        Timestamp,
     },
+    prelude::GatewayIntents,
 };
 use tokio::{io::AsyncWriteExt, sync::oneshot};
 
@@ -53,7 +54,8 @@ impl History {
         let discord_token =
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
-        let client = serenity::Client::builder(&discord_token).await?;
+        // "Default" GateWayIntents are all of them except for the privileged ones.
+        let client = serenity::Client::builder(&discord_token, GatewayIntents::default()).await?;
 
         let mut history = gather(
             client.cache_and_http.http.clone(),
@@ -64,7 +66,7 @@ impl History {
 
         #[derive(Serialize)]
         struct Row {
-            timestamp: DateTime<Utc>,
+            timestamp: Timestamp,
             user_name: String,
             user_discriminator: u16,
             user_id: UserId,
@@ -114,7 +116,7 @@ pub fn gather(
     after: Option<MessageId>,
 ) -> impl Stream<
     Item = anyhow::Result<(
-        DateTime<Utc>,
+        Timestamp,
         User,
         MessageId,
         oneshot::Receiver<Response>,
