@@ -14,6 +14,7 @@ use penumbra_proto::{
     },
 };
 use penumbra_view::{ViewClient, ViewService};
+use serenity::prelude::GatewayIntents;
 use std::{env, path::PathBuf, time::Duration};
 
 use crate::{
@@ -118,6 +119,7 @@ impl Serve {
             .try_collect::<Vec<_>>()
             .await?;
         // From this point on, the view service is synchronized.
+        tracing::info!("initial sync complete");
 
         // Make a worker to handle the wallet
         let (wallet_requests, wallet_worker) = WalletWorker::new(
@@ -136,9 +138,12 @@ impl Serve {
         let handler = Handler::new(self.rate_limit, self.reply_limit);
 
         // Make a new client using a token set by an environment variable, with our handlers
-        let mut client = serenity::Client::builder(&discord_token, Default::default())
-            .event_handler(handler)
-            .await?;
+        let mut client = serenity::Client::builder(
+            &discord_token,
+            GatewayIntents::default() & GatewayIntents::MESSAGE_CONTENT,
+        )
+        .event_handler(handler)
+        .await?;
 
         // Put the sending end of the address queue into the global TypeMap
         client

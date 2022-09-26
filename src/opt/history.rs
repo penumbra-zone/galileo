@@ -55,7 +55,11 @@ impl History {
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
         // "Default" GateWayIntents are all of them except for the privileged ones.
-        let client = serenity::Client::builder(&discord_token, GatewayIntents::default()).await?;
+        let client = serenity::Client::builder(
+            &discord_token,
+            GatewayIntents::default() & GatewayIntents::MESSAGE_CONTENT,
+        )
+        .await?;
 
         let mut history = gather(
             client.cache_and_http.http.clone(),
