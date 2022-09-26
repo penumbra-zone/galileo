@@ -57,7 +57,7 @@ impl History {
         // "Default" GateWayIntents are all of them except for the privileged ones.
         let client = serenity::Client::builder(
             &discord_token,
-            GatewayIntents::default() & GatewayIntents::MESSAGE_CONTENT,
+            GatewayIntents::default() | GatewayIntents::MESSAGE_CONTENT,
         )
         .await?;
 

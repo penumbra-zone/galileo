@@ -140,7 +140,7 @@ impl Serve {
         // Make a new client using a token set by an environment variable, with our handlers
         let mut client = serenity::Client::builder(
             &discord_token,
-            GatewayIntents::default() & GatewayIntents::MESSAGE_CONTENT,
+            GatewayIntents::default() | GatewayIntents::MESSAGE_CONTENT,
         )
         .event_handler(handler)
         .await?;
