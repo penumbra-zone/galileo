@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use penumbra_crypto::{Address, Value};
 use serenity::{client::Cache, model::id::GuildId, prelude::Mentionable};
 
@@ -59,7 +61,6 @@ impl Response {
             cache
                 .as_ref()
                 .guild_roles(guild_id)
-                .await
                 .iter()
                 .flat_map(IntoIterator::into_iter)
                 .filter(|(_, r)| r.permissions.administrator())
@@ -74,20 +75,22 @@ impl Response {
         if !self.succeeded.is_empty() {
             response.push_str("Successfully sent tokens to the following addresses:");
             for (addr, _values) in self.succeeded.iter() {
-                response.push_str(&format!("\n`{}`", addr));
+                write!(response, "\n`{}` ", addr).unwrap();
             }
         }
 
         if !self.failed.is_empty() {
             response.push_str("Failed to send tokens to the following addresses:");
             for (addr, error) in self.failed.iter() {
-                response.push_str(&format!("\n`{}` (error: {})", addr, error));
+                write!(response, "\n`{}` (error: {})", addr, error).unwrap();
             }
 
-            response.push_str(&format!(
+            write!(
+                response,
                 "\n{mention_admins}: you may want to investigate this error :)",
                 mention_admins = mention_admins(cache, guild_id).await,
-            ))
+            )
+            .unwrap();
         }
 
         if !self.unparsed.is_empty() {
@@ -96,18 +99,20 @@ impl Response {
                 but are invalid (maybe a typo or old address version?):",
             );
             for addr in self.unparsed.iter() {
-                response.push_str(&format!("\n`{}`", addr));
+                write!(response, "\n`{}`", addr).unwrap();
             }
         }
 
         if !self.remaining.is_empty() {
-            response.push_str(&format!(
+            write!(
+                response,
                 "\nI'm only allowed to send tokens to addresses {} at a time; \
                 try again later to get tokens for the following addresses:",
                 self.succeeded.len(),
-            ));
+            )
+            .unwrap();
             for addr in self.remaining.iter() {
-                response.push_str(&format!("\n`{}`", addr));
+                write!(response, "\n`{}`", addr).unwrap();
             }
         }
 

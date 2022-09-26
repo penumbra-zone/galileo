@@ -5,12 +5,13 @@ use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use penumbra_crypto::{Value, Zero};
 use penumbra_custody::SoftHSM;
 use penumbra_proto::{
-    client::oblivious::oblivious_query_client::ObliviousQueryClient,
-    custody::{
+    custody::v1alpha1::{
         custody_protocol_client::CustodyProtocolClient,
         custody_protocol_server::CustodyProtocolServer,
     },
-    view::{view_protocol_client::ViewProtocolClient, view_protocol_server::ViewProtocolServer},
+    view::v1alpha1::{
+        view_protocol_client::ViewProtocolClient, view_protocol_server::ViewProtocolServer,
+    },
 };
 use penumbra_view::{ViewClient, ViewService};
 use std::{env, path::PathBuf, time::Duration};
@@ -65,7 +66,7 @@ impl Serve {
     pub async fn exec(self) -> anyhow::Result<()> {
         if self.values.is_empty() {
             anyhow::bail!("at least one value must be provided");
-        } else if self.values.iter().any(|v| v.amount.is_zero()) {
+        } else if self.values.iter().any(|v| v.amount.inner.is_zero()) {
             anyhow::bail!("all values must be non-zero");
         }
 
@@ -92,8 +93,6 @@ impl Serve {
         let fvk = wallet.spend_key.full_viewing_key().clone();
 
         // Instantiate an in-memory view service.
-        let mut oc_client =
-            ObliviousQueryClient::connect(format!("http://{}:{}", self.node, self.pd_port)).await?;
         let view_storage = penumbra_view::Storage::load_or_initialize(
             view_file
                 .to_str()
@@ -137,7 +136,7 @@ impl Serve {
         let handler = Handler::new(self.rate_limit, self.reply_limit);
 
         // Make a new client using a token set by an environment variable, with our handlers
-        let mut client = serenity::Client::builder(&discord_token)
+        let mut client = serenity::Client::builder(&discord_token, Default::default())
             .event_handler(handler)
             .await?;
 

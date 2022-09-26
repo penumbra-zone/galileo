@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::{collections::HashSet, sync::Arc};
 
 use async_stream::try_stream;
@@ -60,7 +61,7 @@ impl Catchup {
                 }
                 keep
             }) {
-                notification.push_str(&format!("{} ", user_id.mention()));
+                write!(notification, "{} ", user_id.mention()).unwrap();
             }
             notification += "should all have tokens now!";
             notification

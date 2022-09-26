@@ -8,12 +8,12 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Penumbra dependencies
-penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "029-eukelade" }
-penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "029-eukelade" }
-penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra", tag = "029-eukelade" }
-penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "029-eukelade" }
-penumbra-view = { git = "https://github.com/penumbra-zone/penumbra", tag = "029-eukelade" }
-penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", tag = "029-eukelade" }
+penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
+penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
+penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
+penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
+penumbra-view = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
+penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
 
 # External dependencies
 ark-ff = "0.3"
@@ -21,12 +21,11 @@ ark-serialize = "0.3"
 anyhow = "1"
 directories = "4.0.1"
 regex = "1"
-serenity = { version = "0.10", default-features = false, features = ["client", "cache", "gateway", "rustls_backend", "model"] }
+serenity = { version = "0.11", default-features = false, features = ["client", "cache", "gateway", "rustls_backend", "model"] }
 sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "postgres", "offline" ] }
 tracing = "0.1"
 tracing-subscriber = "0.2"
-# Temporarily pin due to https://github.com/penumbra-zone/penumbra/issues/1355
-tokio = { version = "=1.20.1", features = ["full"]}
+tokio = { version = "=1.21.1", features = ["full"] }
 humantime = "2"
 clap = { version = "3", features = ["derive"] }
 serde_json = "1"
@@ -38,7 +37,7 @@ rand = "0.8"
 reqwest = "0.11"
 indexmap = "1.8"
 async-stream = "0.3"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 serde = "1"
 csv-stream = "0.1"
 
