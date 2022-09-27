@@ -15,6 +15,7 @@ use serenity::{
         Timestamp,
     },
     prelude::GatewayIntents,
+    utils::token,
 };
 use tokio::{io::AsyncWriteExt, sync::oneshot};
 
@@ -54,10 +55,14 @@ impl History {
         let discord_token =
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
+        if token::validate(discord_token.clone()).is_err() {
+            anyhow::bail!("invalid discord token");
+        }
+
         // "Default" GateWayIntents are all of them except for the privileged ones.
         let client = serenity::Client::builder(
             &discord_token,
-            GatewayIntents::default() | GatewayIntents::MESSAGE_CONTENT,
+            GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT,
         )
         .await?;
 

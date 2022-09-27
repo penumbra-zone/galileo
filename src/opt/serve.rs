@@ -15,6 +15,7 @@ use penumbra_proto::{
 };
 use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
+use serenity::utils::token;
 use std::{env, path::PathBuf, time::Duration};
 
 use crate::{
@@ -73,6 +74,10 @@ impl Serve {
 
         let discord_token =
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
+
+        if token::validate(discord_token.clone()).is_err() {
+            anyhow::bail!("invalid discord token");
+        }
 
         // Look up the path to the view state file per platform, creating the directory if needed
         let data_dir = self.data_dir.unwrap_or_else(|| {
@@ -140,7 +145,7 @@ impl Serve {
         // Make a new client using a token set by an environment variable, with our handlers
         let mut client = serenity::Client::builder(
             &discord_token,
-            GatewayIntents::default() | GatewayIntents::MESSAGE_CONTENT,
+            GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT,
         )
         .event_handler(handler)
         .await?;

@@ -7,12 +7,14 @@ use std::{
 use serenity::{
     async_trait,
     client::{Context, EventHandler},
+    model::gateway::Ready,
     model::{
         channel::Message,
         id::{GuildId, UserId},
     },
 };
 use tokio::time::{Duration, Instant};
+use tracing::instrument;
 
 use super::responder::{Request, RequestQueue};
 
@@ -39,7 +41,9 @@ impl Handler {
 
 #[async_trait]
 impl EventHandler for Handler {
+    #[instrument(skip(self, ctx))]
     async fn message(&self, ctx: Context, message: Message) {
+        tracing::trace!("parsing message: {:#?}", message);
         // Get the guild id of this message
         let guild_id = if let Some(guild_id) = message.guild_id {
             guild_id
@@ -180,6 +184,10 @@ impl EventHandler for Handler {
                 "connected to server"
             );
         }
+    }
+
+    async fn ready(&self, _: Context, ready: Ready) {
+        tracing::info!("{} is connected!", ready.user.name);
     }
 }
 

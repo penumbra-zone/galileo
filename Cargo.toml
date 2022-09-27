@@ -21,7 +21,7 @@ ark-serialize = "0.3"
 anyhow = "1"
 directories = "4.0.1"
 regex = "1"
-serenity = { version = "0.11", default-features = false, features = ["client", "cache", "gateway", "rustls_backend", "model"] }
+serenity = { version = "0.11", default-features = false, features = ["client", "cache", "gateway", "rustls_backend", "model", "utils"] }
 sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "postgres", "offline" ] }
 tracing = "0.1"
 tracing-subscriber = "0.2"
