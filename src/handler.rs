@@ -131,7 +131,7 @@ impl EventHandler for Handler {
             );
 
             // If we already notified the user, don't reply again
-            if notified > self.reply_limit {
+            if notified > self.reply_limit + 1 {
                 return;
             }
 
@@ -139,9 +139,15 @@ impl EventHandler for Handler {
                 "Please wait for another {} before requesting more tokens. Thanks!",
                 format_remaining_time(last_fulfilled, self.rate_limit)
             );
-            reply(&ctx, message, response).await;
+            reply(&ctx, &message, response).await;
 
-            return;
+            // Setting the notified count to zero "un-rate-limits" an entry, which we do when a
+            // request fails, so we don't have to traverse the entire list:
+            if notified > 0 {
+                // So therefore we only prevent the request when the notification count is greater
+                // than zero
+                return;
+            }
         }
 
         // Push the user into the send history queue for rate-limiting in the future
@@ -149,7 +155,7 @@ impl EventHandler for Handler {
         self.send_history
             .lock()
             .unwrap()
-            .push_back((user_id, Instant::now(), 0));
+            .push_back((user_id, Instant::now(), 1));
 
         // Send the message to the queue, to be processed asynchronously
         tracing::trace!("sending message to worker queue");
@@ -170,6 +176,12 @@ impl EventHandler for Handler {
         // Reply to the user with the response from the responder
         if let Ok(response) = response.await {
             reply(&ctx, message, response.summary(&ctx, guild_id).await).await;
+        } else {
+            self.send_history.lock().unwrap().iter_mut().find(|(user, _, _)| *user == user_id).map(|(_, _, notified)| {
+                // If the request failed, we set the notification count to zero, so that the rate
+                // limit will not apply to future requests
+                *notified = notified.saturating_sub(1);
+            });
         }
     }
 
