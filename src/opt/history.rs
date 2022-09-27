@@ -15,7 +15,7 @@ use serenity::{
         Timestamp,
     },
     prelude::GatewayIntents,
-    utils::token,
+    // utils::token,
 };
 use tokio::{io::AsyncWriteExt, sync::oneshot};
 
@@ -55,9 +55,12 @@ impl History {
         let discord_token =
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
-        if token::validate(discord_token.clone()).is_err() {
-            anyhow::bail!("invalid discord token");
-        }
+        // TODO: i think the serenity token validation logic has a bug somewhere because it always
+        // fails with seemingly correct tokens:
+        // https://docs.rs/serenity/0.11.5/src/serenity/utils/token.rs.html
+        // if token::validate(discord_token.clone()).is_err() {
+        //     anyhow::bail!("invalid discord token");
+        // }
 
         // "Default" GateWayIntents are all of them except for the privileged ones.
         let client = serenity::Client::builder(

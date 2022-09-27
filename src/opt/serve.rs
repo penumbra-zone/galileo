@@ -15,7 +15,7 @@ use penumbra_proto::{
 };
 use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
-use serenity::utils::token;
+// use serenity::utils::token;
 use std::{env, path::PathBuf, time::Duration};
 
 use crate::{
@@ -75,9 +75,12 @@ impl Serve {
         let discord_token =
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
-        if token::validate(discord_token.clone()).is_err() {
-            anyhow::bail!("invalid discord token");
-        }
+        // TODO: i think the serenity token validation logic has a bug somewhere because it always
+        // fails with seemingly correct tokens:
+        // https://docs.rs/serenity/0.11.5/src/serenity/utils/token.rs.html
+        // if token::validate(discord_token.clone()).is_err() {
+        //     anyhow::bail!("invalid discord token");
+        // }
 
         // Look up the path to the view state file per platform, creating the directory if needed
         let data_dir = self.data_dir.unwrap_or_else(|| {
