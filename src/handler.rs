@@ -177,11 +177,16 @@ impl EventHandler for Handler {
         if let Ok(response) = response.await {
             reply(&ctx, message, response.summary(&ctx, guild_id).await).await;
         } else {
-            self.send_history.lock().unwrap().iter_mut().find(|(user, _, _)| *user == user_id).map(|(_, _, notified)| {
-                // If the request failed, we set the notification count to zero, so that the rate
-                // limit will not apply to future requests
-                *notified = notified.saturating_sub(1);
-            });
+            self.send_history
+                .lock()
+                .unwrap()
+                .iter_mut()
+                .find(|(user, _, _)| *user == user_id)
+                .map(|(_, _, notified)| {
+                    // If the request failed, we set the notification count to zero, so that the rate
+                    // limit will not apply to future requests
+                    *notified = notified.saturating_sub(1);
+                });
         }
     }
 
