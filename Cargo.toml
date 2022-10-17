@@ -8,12 +8,12 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Penumbra dependencies
-penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
-penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
-penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
-penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
-penumbra-view = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
-penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", tag = "030-isonoe" }
+penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "032-chaldene" }
+penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "032-chaldene" }
+penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra", tag = "032-chaldene" }
+penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "032-chaldene" }
+penumbra-view = { git = "https://github.com/penumbra-zone/penumbra", tag = "032-chaldene" }
+penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", tag = "032-chaldene" }
 
 # External dependencies
 ark-ff = "0.3"
@@ -21,8 +21,19 @@ ark-serialize = "0.3"
 anyhow = "1"
 directories = "4.0.1"
 regex = "1"
-serenity = { version = "0.11", default-features = false, features = ["client", "cache", "gateway", "rustls_backend", "model", "utils"] }
-sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "postgres", "offline" ] }
+serenity = { version = "0.11", default-features = false, features = [
+    "client",
+    "cache",
+    "gateway",
+    "rustls_backend",
+    "model",
+    "utils",
+] }
+sqlx = { version = "0.5", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "offline",
+] }
 tracing = "0.1"
 tracing-subscriber = "0.2"
 tokio = { version = "=1.21.1", features = ["full"] }
