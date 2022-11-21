@@ -4,10 +4,16 @@ use directories::ProjectDirs;
 use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use penumbra_crypto::{Value, Zero};
 use penumbra_custody::SoftHSM;
-use penumbra_proto::{view::v1alpha1::{
-    view_protocol_service_client::ViewProtocolServiceClient,
-    view_protocol_service_server::ViewProtocolServiceServer,
-}, custody::v1alpha1::{custody_protocol_service_client::CustodyProtocolServiceClient, custody_protocol_service_server::CustodyProtocolServiceServer}};
+use penumbra_proto::{
+    custody::v1alpha1::{
+        custody_protocol_service_client::CustodyProtocolServiceClient,
+        custody_protocol_service_server::CustodyProtocolServiceServer,
+    },
+    view::v1alpha1::{
+        view_protocol_service_client::ViewProtocolServiceClient,
+        view_protocol_service_server::ViewProtocolServiceServer,
+    },
+};
 use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
 // use serenity::utils::token;
@@ -92,7 +98,8 @@ impl Serve {
         // Build a custody service...
         let wallet = Wallet::load(custody_file)?;
         let soft_hsm = SoftHSM::new(vec![wallet.spend_key.clone()]);
-        let custody = CustodyProtocolServiceClient::new(CustodyProtocolServiceServer::new(soft_hsm));
+        let custody =
+            CustodyProtocolServiceClient::new(CustodyProtocolServiceServer::new(soft_hsm));
 
         let fvk = wallet.spend_key.full_viewing_key().clone();
 
