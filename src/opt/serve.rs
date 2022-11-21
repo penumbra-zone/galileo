@@ -6,11 +6,12 @@ use penumbra_crypto::{Value, Zero};
 use penumbra_custody::SoftHSM;
 use penumbra_proto::{
     custody::v1alpha1::{
-        custody_protocol_client::CustodyProtocolClient,
-        custody_protocol_server::CustodyProtocolServer,
+        custody_protocol_service_client::CustodyProtocolServiceClient,
+        custody_protocol_service_server::CustodyProtocolServiceServer,
     },
     view::v1alpha1::{
-        view_protocol_client::ViewProtocolClient, view_protocol_server::ViewProtocolServer,
+        view_protocol_service_client::ViewProtocolServiceClient,
+        view_protocol_service_server::ViewProtocolServiceServer,
     },
 };
 use penumbra_view::{ViewClient, ViewService};
@@ -97,7 +98,8 @@ impl Serve {
         // Build a custody service...
         let wallet = Wallet::load(custody_file)?;
         let soft_hsm = SoftHSM::new(vec![wallet.spend_key.clone()]);
-        let custody = CustodyProtocolClient::new(CustodyProtocolServer::new(soft_hsm));
+        let custody =
+            CustodyProtocolServiceClient::new(CustodyProtocolServiceServer::new(soft_hsm));
 
         let fvk = wallet.spend_key.full_viewing_key().clone();
 
@@ -116,7 +118,7 @@ impl Serve {
             ViewService::new(view_storage, self.node.clone(), self.pd_port, self.rpc_port).await?;
 
         // Now build the view and custody clients, doing gRPC with ourselves
-        let mut view = ViewProtocolClient::new(ViewProtocolServer::new(view_service));
+        let mut view = ViewProtocolServiceClient::new(ViewProtocolServiceServer::new(view_service));
 
         // Wait to synchronize the chain before doing anything else.
         tracing::info!(
