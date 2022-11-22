@@ -8,12 +8,12 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Penumbra dependencies
-penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste" }
-penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste" }
-penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste" }
-penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste" }
-penumbra-view = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste" }
-penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste" }
+penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste.1" }
+penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste.1" }
+penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste.1" }
+penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste.1" }
+penumbra-view = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste.1" }
+penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", tag = "036-iocaste.1" }
 
 # External dependencies
 ark-ff = "0.3"
