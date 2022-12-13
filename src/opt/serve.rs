@@ -116,8 +116,7 @@ impl Serve {
             self.pd_port,
         )
         .await?;
-        let view_service =
-            ViewService::new(view_storage, self.node.clone(), self.pd_port, self.rpc_port).await?;
+        let view_service = ViewService::new(view_storage, self.node.clone(), self.pd_port).await?;
 
         // Now build the view and custody clients, doing gRPC with ourselves
         let mut view = ViewProtocolServiceClient::new(ViewProtocolServiceServer::new(view_service));
