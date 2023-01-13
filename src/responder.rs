@@ -101,7 +101,9 @@ impl Responder {
 
                     match result.await? {
                         Ok(()) => succeeded.push((*addr, self.values.clone())),
-                        Err(e) => failed.push((*addr, e.to_string())),
+                        // By default, anyhow::Error's Display impl only prints the outermost error;
+                        // using the alternate formate specifier prints the entire chain of causes.
+                        Err(e) => failed.push((*addr, format!("{:#}", e))),
                     }
                 }
                 Some(AddressOrAlmost::Almost(addr)) => {
