@@ -61,23 +61,38 @@ The steps are:
 
 ```
 # Log into galileo host
-ssh root@galileo.penumbra.zone
+ssh <your_first_name>@galileo.penumbra.zone
+# Stop running service
+sudo systemctl stop galileo
 
-cd ~/penumbra && git checkout <latest_tag>
+# Switch to unprivileged user
+sudo su -l www-data -s /bin/bash
+
 # Reset the client state for the new testnet
+cd ~/penumbra
+git fetch --tags
+git checkout <latest_tag>
 cargo run --release --bin pcli view reset
-# Stop the running galileo process
-killall galileo
+
 # Update galileo's source code
-cd ~/galileo && git pull origin main
-# Start (or resume) a screen session
-screen -r
+cd ~/galileo
+git pull origin main
+cargo update
+cargo build --release
+
+# Return to normal user
+exit
+
+# Edit the catch-up url arg
+sudo vim /etc/systemd/system/galileo.service
 # Start Galileo again:
-RUST_LOG=galileo=info DISCORD_TOKEN={token} cargo run --release -- serve 100penumbra 10pizza 10gm 10gn --catch-up {URL of latest unserved request}
-# Exit screen, without stopping Galileo
-^A d
+sudo systemctl daemon-reload
+sudo systemctl restart galileo
+
 # Confirm that Galileo is dispensing tokens by testing the faucet channel with your own address
 # Resupply Galileo wallet as needed
+# View logs for galileo at any time with:
+sudo journalctl -af -u galileo
 ```
 
 These steps should be performed on release day, immediately after publishing the tag.
