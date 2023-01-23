@@ -71,7 +71,7 @@ impl Serve {
     pub async fn exec(self) -> anyhow::Result<()> {
         if self.values.is_empty() {
             anyhow::bail!("at least one value must be provided");
-        } else if self.values.iter().any(|v| v.amount.inner.is_zero()) {
+        } else if self.values.iter().any(|v| v.amount.value().is_zero()) {
             anyhow::bail!("all values must be non-zero");
         }
 
