@@ -3,7 +3,7 @@ use clap::Parser;
 use directories::ProjectDirs;
 use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
 use penumbra_crypto::{Value, Zero};
-use penumbra_custody::SoftKms;
+use penumbra_custody::soft_kms::SoftKms;
 use penumbra_proto::{
     custody::v1alpha1::{
         custody_protocol_service_client::CustodyProtocolServiceClient,
@@ -99,7 +99,7 @@ impl Serve {
 
         // Build a custody service...
         let wallet = Wallet::load(custody_file)?;
-        let soft_kms = SoftKms::new(vec![wallet.spend_key.clone()]);
+        let soft_kms = SoftKms::new(wallet.spend_key.clone().into());
         let custody =
             CustodyProtocolServiceClient::new(CustodyProtocolServiceServer::new(soft_kms));
 

@@ -148,7 +148,7 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
     /// node has accepted the transaction, and erroring otherwise.
     #[instrument(skip(self, transaction))]
     pub async fn submit_transaction(&self, transaction: &Transaction) -> Result<(), anyhow::Error> {
-        use penumbra_proto::Protobuf;
+        use penumbra_proto::DomainType;
         tracing::info!("broadcasting transaction...");
 
         let client = reqwest::Client::new();
