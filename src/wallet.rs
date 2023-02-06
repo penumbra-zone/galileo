@@ -1,3 +1,4 @@
+use anyhow::Context;
 use derivative::Derivative;
 use penumbra_crypto::{keys::SpendKey, transaction::Fee, Address, FullViewingKey, Value};
 use penumbra_custody::CustodyClient;
@@ -6,6 +7,7 @@ use penumbra_view::ViewClient;
 use penumbra_wallet::{build_transaction, plan};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use tokio::sync::{mpsc, oneshot};
 use tracing::instrument;
 
@@ -60,7 +62,19 @@ pub struct Wallet {
 impl Wallet {
     /// Read the wallet data from the provided path.
     pub fn load(path: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
-        serde_json::from_slice(std::fs::read(path)?.as_slice()).map_err(Into::into)
+        let custody_json: serde_json::Value =
+            serde_json::from_slice(std::fs::read(path)?.as_slice())?;
+        let sk_str = match custody_json["spend_key"].as_str() {
+            Some(s) => s,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "'spend_key' field not found in custody JSON file"
+                ))
+            }
+        };
+        let spend_key = SpendKey::from_str(sk_str)
+            .context(format!("Could not create SpendKey from string: {}", sk_str))?;
+        Ok(Self { spend_key })
     }
 }
 

@@ -98,7 +98,8 @@ impl Serve {
         let custody_file = data_dir.clone().join("custody.json");
 
         // Build a custody service...
-        let wallet = Wallet::load(custody_file)?;
+        let wallet =
+            Wallet::load(custody_file).context("Failed to load wallet from local custody file")?;
         let soft_kms = SoftKms::new(wallet.spend_key.clone().into());
         let custody =
             CustodyProtocolServiceClient::new(CustodyProtocolServiceServer::new(soft_kms));
