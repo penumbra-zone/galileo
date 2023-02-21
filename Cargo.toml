@@ -66,3 +66,13 @@ tendermint = "=0.24.0-pre.1"
 # 0.7.1 (also prost-related), and depending on an exact version here will exclude
 # the bad update until it's yanked.
 ics23 = "=0.7.0"
+
+# Dev-only: override the git URLs for penumbra deps to reference an adjacent
+# local directory. Helps when testing out API changes for Galileo.
+#[patch.'https://github.com/penumbra-zone/penumbra']
+#penumbra-proto = { path = "../penumbra/proto" }
+#penumbra-crypto = { path = "../penumbra/crypto" }
+#penumbra-custody = { path = "../penumbra/custody" }
+#penumbra-wallet = { path = "../penumbra/wallet" }
+#penumbra-view = { path = "../penumbra/view" }
+#penumbra-transaction = { path = "../penumbra/transaction" }
