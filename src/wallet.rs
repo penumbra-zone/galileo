@@ -24,7 +24,7 @@ pub struct WalletWorker<V: ViewClient, C: CustodyClient> {
     requests: Option<mpsc::Receiver<Request>>,
     node: String,
     rpc_port: u16,
-    source: Option<u64>,
+    source: penumbra_crypto::keys::AddressIndex,
 }
 
 /// A request that the wallet dispense the listed tokens to a particular address, using some fee.
@@ -85,7 +85,7 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
         view: V,
         custody: C,
         fvk: FullViewingKey,
-        source_address: Option<u64>,
+        source_address: penumbra_crypto::keys::AddressIndex,
         node: String,
         rpc_port: u16,
     ) -> (mpsc::Sender<Request>, Self) {
