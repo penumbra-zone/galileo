@@ -6,45 +6,67 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - name: Checkout galileo
+        uses: actions/checkout@v2
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: Swatinem/rust-cache@v1
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
+          path: galileo
 
-  test:
-    name: Test Suite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
+      - name: Check out penumbra repo
+        uses: actions/checkout@v2
+        with:
+          repository: penumbra-zone/penumbra
+          path: penumbra
+          lfs: true
+
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           override: true
-      - uses: Swatinem/rust-cache@v1
-      - uses: actions-rs/cargo@v1
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          command: test
+          workspaces: |
+            galileo
+            penumbra
+
+      # We cannot use the GH action because it doesn't working directory:
+      # support custom working dirs.
+      # - uses: actions-rs/cargo@v1
+      - name: cargo check
+        run:
+          cargo check
+        working-directory: galileo
 
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout galileo
+        uses: actions/checkout@v2
+        with:
+          path: galileo
+
+      - name: Check out penumbra repo
+        uses: actions/checkout@v2
+        with:
+          repository: penumbra-zone/penumbra
+          path: penumbra
+          lfs: true
+
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
           override: true
-      - uses: Swatinem/rust-cache@v1
-      - run: rustup component add rustfmt
-      - uses: actions-rs/cargo@v1
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          command: fmt
-          args: --all -- --check
+          workspaces: |
+            galileo
+            penumbra
+
+      - name: cargo fmt
+        run:
+          cargo fmt --all -- --check
+        working-directory: galileo
