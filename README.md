@@ -8,6 +8,14 @@ location of the wallet managed by the `pcli` command line Penumbra wallet. To se
 create a wallet with `pcli`, then send some tokens to that wallet on the test network. Then, you can
 run Galileo:
 
+## Obtaining dependencies
+
+You must clone the [penumbra repo](https://github.com/penumbra-zone/penumbra)
+side-by-side with the Galileo repo, so that the dependencies are available
+as a relative path. This is a temporary workaround to support Git LFS
+in the Penumbra dependencies.
+See [GH29](https://github.com/penumbra-zone/galileo/issues/29) for details.
+
 ## Running it
 
 ```bash
