@@ -3,9 +3,8 @@ use std::{env, sync::Arc};
 use anyhow::Context;
 use async_stream::stream;
 use clap::Parser;
-use csv_stream as csv;
+use csv;
 use futures::{Stream, StreamExt};
-use penumbra_crypto::Address;
 use serde::Serialize;
 use serenity::{
     http::Http,
@@ -76,19 +75,21 @@ impl History {
             self.after,
         );
 
-        #[derive(Serialize)]
+        #[derive(Serialize, Debug)]
         struct Row {
             timestamp: Timestamp,
             user_name: String,
             user_discriminator: u16,
             user_id: UserId,
             message_id: MessageId,
-            address: Address,
+            // Using display impl to get human-readable address for serialization.
+            // Type is checked via enum.
+            // address: penumbra_crypto::Address,
+            address: String,
         }
-
-        let mut csv = csv::Writer::default();
-        let mut buf = Vec::new();
-        let mut out = tokio::io::stdout();
+        let mut wtr = csv::WriterBuilder::new()
+            .has_headers(true)
+            .from_writer(std::io::stdout());
 
         while let Some(result) = history.next().await {
             let (timestamp, user, message_id, _, request) = result?;
@@ -106,11 +107,11 @@ impl History {
                         user_discriminator: user.discriminator,
                         user_id: user.id,
                         message_id,
-                        address: *address.clone(),
+                        // Use display formatting to get a human-readable address
+                        address: format!("{}", *address.clone()),
                     };
-                    csv.serialize(&mut buf, row)?;
-                    out.write_all(&buf).await?;
-                    buf.clear();
+                    let debug_msg = format!("Failed to serialize row: {:?}", &row);
+                    wtr.serialize(row).context(debug_msg)?;
                 }
             }
         }
