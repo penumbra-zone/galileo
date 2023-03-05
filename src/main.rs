@@ -5,6 +5,9 @@ pub use handler::Handler;
 mod responder;
 pub use responder::Responder;
 
+mod sender;
+pub use sender::Sender;
+
 mod opt;
 pub use opt::{gather_history, Opt};
 
