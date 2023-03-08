@@ -16,7 +16,7 @@ use serenity::{
     prelude::GatewayIntents,
     // utils::token,
 };
-use tokio::{io::AsyncWriteExt, sync::oneshot};
+use tokio::sync::oneshot;
 
 use crate::responder::{AddressOrAlmost, Request, Response};
 

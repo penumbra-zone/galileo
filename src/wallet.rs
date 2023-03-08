@@ -1,10 +1,9 @@
 use anyhow::Context;
 use derivative::Derivative;
-use penumbra_crypto::{keys::SpendKey, transaction::Fee, Address, FullViewingKey, Value};
-use penumbra_custody::CustodyClient;
-use penumbra_transaction::Transaction;
+use penumbra_crypto::{keys::SpendKey, Address, FullViewingKey, Value};
+use penumbra_custody::{AuthorizeRequest, CustodyClient};
 use penumbra_view::ViewClient;
-use penumbra_wallet::{build_transaction, plan};
+use penumbra_wallet::plan::Planner;
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -124,86 +123,54 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
 
     /// Construct a transaction sending the given values to the given address, with the given fee,
     /// and transmit it to the network, waiting for it to be accepted.
-    #[instrument(skip(self, destination, amounts), fields(%destination))]
+    #[instrument(skip(self, destination, values), fields(%destination))]
     async fn dispense(
         &mut self,
         destination: Address,
-        amounts: Vec<Value>,
+        values: Vec<Value>,
         fee: u64,
     ) -> anyhow::Result<()> {
         tracing::debug!("Dispensing...");
 
         let source_address = self.source;
 
-        let plan = plan::send(
-            &self.fvk,
-            &mut self.view,
-            OsRng,
-            &amounts,
-            Fee::from_staking_token_amount(fee.into()),
-            destination,
-            source_address,
-            None,
-        )
-        .await?;
-        tracing::debug!("plan: {:#?}", plan);
+        // 1. plan the transaction.
+        if values.is_empty() {
+            return Err(anyhow::anyhow!(
+                "tried to send empty list of values to address"
+            ));
+        }
+        let mut planner = Planner::new(OsRng);
+        for value in values {
+            planner.output(value, destination);
+        }
+        // TODO: look up galileo bot's wallet address and include in memo; required since
+        // https://github.com/penumbra-zone/penumbra/issues/1880
+        // planner
+        //     .memo("Hello from Galileo, the Penumbra faucet bot".to_string())
+        //     .unwrap();
+        let plan = planner.plan(&mut self.view, &self.fvk, source_address);
+        let plan = plan.await?;
 
-        let transaction =
-            build_transaction(&self.fvk, &mut self.view, &mut self.custody, OsRng, plan).await?;
-        tracing::debug!("transaction: {:#?}", transaction);
-
-        // TODO: extract into penumbra_wallet crate?
-        self.submit_transaction(&transaction).await?;
-
-        Ok(())
-    }
-
-    /// Submits a transaction to the network, returning `Ok` only when the remote
-    /// node has accepted the transaction, and erroring otherwise.
-    #[instrument(skip(self, transaction))]
-    pub async fn submit_transaction(&self, transaction: &Transaction) -> Result<(), anyhow::Error> {
-        use penumbra_proto::DomainType;
-        tracing::info!("broadcasting transaction...");
-
-        let client = reqwest::Client::new();
-        let req_id: u8 = rand::random();
-        let rsp: serde_json::Value = client
-            .post(format!(r#"http://{}:{}"#, self.node, self.rpc_port))
-            .json(&serde_json::json!(
-                {
-                    "method": "broadcast_tx_sync",
-                    "params": [&transaction.encode_to_vec()],
-                    "id": req_id,
-                }
-            ))
-            .send()
+        // 2. Authorize and build the transaction.
+        let auth_data = self
+            .custody
+            .authorize(AuthorizeRequest {
+                plan: plan.clone(),
+                account_id: self.fvk.hash(),
+                pre_authorizations: Vec::new(),
+            })
             .await?
-            .json()
+            .data
+            .ok_or_else(|| anyhow::anyhow!("no auth data"))?
+            .try_into()?;
+        let witness_data = self.view.witness(self.fvk.hash(), &plan).await?;
+        let tx = plan
+            .build_concurrent(OsRng, &self.fvk, auth_data, witness_data)
             .await?;
 
-        tracing::info!("{}", rsp);
-
-        // Sometimes the result is in a result key, and sometimes it's bare? (??)
-        let result = rsp.get("result").unwrap_or(&rsp);
-
-        let code = result
-            .get("code")
-            .and_then(|c| c.as_i64())
-            .ok_or_else(|| anyhow::anyhow!("could not parse JSON response"))?;
-
-        if code == 0 {
-            Ok(())
-        } else {
-            let log = result
-                .get("log")
-                .and_then(|l| l.as_str())
-                .ok_or_else(|| anyhow::anyhow!("could not parse JSON response"))?;
-
-            Err(anyhow::anyhow!(
-                "Error submitting transaction: code {}, log: {}",
-                code,
-                log
-            ))
-        }
+        // 3. Broadcast the transaction and wait for confirmation.
+        self.view.broadcast_transaction(tx, true).await?;
+        Ok(())
     }
 }
