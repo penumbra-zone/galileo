@@ -62,9 +62,11 @@ where
             for value in values {
                 planner.output(value, address);
             }
-            planner
-                .memo("Hello from Galileo, the Penumbra faucet bot".to_string())
-                .unwrap();
+            // TODO: look up galileo bot's wallet address and include in memo; required since
+            // https://github.com/penumbra-zone/penumbra/issues/1880
+            // planner
+            //     .memo("Hello from Galileo, the Penumbra faucet bot".to_string())
+            //     .unwrap();
             let plan = planner.plan(&mut self2.view, &self2.fvk, self2.account.into());
             let plan = plan.await?;
 
