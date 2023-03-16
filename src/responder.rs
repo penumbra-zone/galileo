@@ -1,10 +1,15 @@
-use std::time::Duration;
-
 use penumbra_crypto::{Address, Value};
+use penumbra_custody::CustodyClient;
+use penumbra_transaction::Id;
+use penumbra_view::ViewClient;
 use serenity::prelude::TypeMapKey;
-use tokio::{sync::mpsc, time::sleep};
+use tokio::sync::mpsc;
+use tower::limit::ConcurrencyLimit;
+use tower::Service;
+use tower::ServiceExt;
+use tracing::Instrument;
 
-use crate::wallet;
+use crate::Sender;
 
 mod request;
 pub(crate) use request::AddressOrAlmost;
@@ -15,17 +20,19 @@ pub use response::Response;
 
 /// Worker transforming lists of addresses to responses describing whether they were successfully
 /// dispensed tokens.
-pub struct Responder {
+pub struct Responder<V, C>
+where
+    V: ViewClient + Clone + Send + 'static,
+    C: CustodyClient + Clone + Send + 'static,
+{
     /// Maximum number of addresses to handle per message.
     max_addresses: usize,
     /// Actions to perform.
     actions: mpsc::Receiver<Request>,
-    /// Requests outbound to the wallet worker.
-    requests: mpsc::Sender<wallet::Request>,
     /// Values to send each time.
     values: Vec<Value>,
-    /// Fee to send each time.
-    fee: u64,
+    /// The transaction sender.
+    sender: ConcurrencyLimit<Sender<V, C>>,
 }
 
 /// `TypeMap` key for the address queue (so that `serenity` worker can send to it).
@@ -36,23 +43,25 @@ impl TypeMapKey for RequestQueue {
     type Value = mpsc::Sender<Request>;
 }
 
-impl Responder {
+impl<V, C> Responder<V, C>
+where
+    V: ViewClient + Clone + Send + 'static,
+    C: CustodyClient + Clone + Send + 'static,
+{
     /// Create a new responder.
     pub fn new(
-        requests: mpsc::Sender<wallet::Request>,
+        sender: ConcurrencyLimit<Sender<V, C>>,
         max_addresses: usize,
         values: Vec<Value>,
-        fee: u64,
     ) -> (mpsc::Sender<Request>, Self) {
         let (tx, rx) = mpsc::channel(10);
         (
             tx,
             Responder {
-                requests,
+                sender,
                 max_addresses,
                 actions: rx,
                 values,
-                fee,
             },
         )
     }
@@ -75,7 +84,7 @@ impl Responder {
     /// happened.
     async fn dispense(&mut self, mut addresses: Vec<AddressOrAlmost>) -> anyhow::Result<Response> {
         // Track addresses to which we successfully dispensed tokens
-        let mut succeeded = Vec::<(Address, Vec<Value>)>::new();
+        let mut succeeded = Vec::<(Address, Id)>::new();
 
         // Track addresses (and associated errors) which we tried to send tokens to, but failed
         let mut failed = Vec::<(Address, String)>::new();
@@ -90,17 +99,25 @@ impl Responder {
             match addresses.pop() {
                 Some(AddressOrAlmost::Address(addr)) => {
                     // Reply to the originating message with the address
-                    tracing::info!(address = %addr, "requesting tokens");
+                    let span = tracing::info_span!("send", address = %addr);
+                    span.in_scope(|| {
+                        tracing::info!("processing send request, waiting for readiness");
+                    });
+                    let rsp = self
+                        .sender
+                        .ready()
+                        .await?
+                        .call((*addr, self.values.clone()))
+                        .instrument(span.clone());
+                    tracing::info!("submitted send request");
 
-                    let (result, request) =
-                        wallet::Request::send(*addr, self.values.clone(), self.fee);
-                    self.requests.send(request).await?;
-
-                    // temp: Remove after wallet refactor. This is to prevent reuse of spent notes.
-                    sleep(Duration::from_secs(10)).await;
-
-                    match result.await? {
-                        Ok(()) => succeeded.push((*addr, self.values.clone())),
+                    match rsp.await {
+                        Ok(id) => {
+                            span.in_scope(|| {
+                                tracing::info!(id = %id, "send request succeeded");
+                            });
+                            succeeded.push((*addr, id));
+                        }
                         // By default, anyhow::Error's Display impl only prints the outermost error;
                         // using the alternate formate specifier prints the entire chain of causes.
                         Err(e) => failed.push((*addr, format!("{:#}", e))),
