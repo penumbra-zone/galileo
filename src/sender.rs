@@ -1,7 +1,7 @@
 use std::{pin::Pin, task::Poll};
 
 use futures::{Future, FutureExt};
-use penumbra_crypto::{Address, FullViewingKey, Value};
+use penumbra_crypto::{memo::MemoPlaintext, Address, FullViewingKey, Value};
 use penumbra_custody::{AuthorizeRequest, CustodyClient};
 use penumbra_view::ViewClient;
 use penumbra_wallet::plan::Planner;
@@ -62,12 +62,17 @@ where
             for value in values {
                 planner.output(value, address);
             }
-            // TODO: look up galileo bot's wallet address and include in memo; required since
-            // https://github.com/penumbra-zone/penumbra/issues/1880
-            // planner
-            //     .memo("Hello from Galileo, the Penumbra faucet bot".to_string())
-            //     .unwrap();
-            let plan = planner.plan(&mut self2.view, &self2.fvk, self2.account.into());
+            planner
+                .memo(MemoPlaintext {
+                    text: "Hello from Galileo, the Penumbra faucet bot".to_string(),
+                    sender: self2.fvk.payment_address(0.into()).0,
+                })
+                .unwrap();
+            let plan = planner.plan(
+                &mut self2.view,
+                self2.fvk.account_group_id(),
+                self2.account.into(),
+            );
             let plan = plan.await?;
 
             // 2. Authorize and build the transaction.
@@ -75,14 +80,17 @@ where
                 .custody
                 .authorize(AuthorizeRequest {
                     plan: plan.clone(),
-                    account_id: self2.fvk.hash(),
+                    account_group_id: self2.fvk.account_group_id(),
                     pre_authorizations: Vec::new(),
                 })
                 .await?
                 .data
                 .ok_or_else(|| anyhow::anyhow!("no auth data"))?
                 .try_into()?;
-            let witness_data = self2.view.witness(self2.fvk.hash(), &plan).await?;
+            let witness_data = self2
+                .view
+                .witness(self2.fvk.account_group_id(), &plan)
+                .await?;
             let tx = plan
                 .build_concurrent(OsRng, &self2.fvk, auth_data, witness_data)
                 .await?;

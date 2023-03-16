@@ -20,8 +20,8 @@ use serenity::prelude::GatewayIntents;
 use std::{env, path::PathBuf, time::Duration};
 
 use crate::{
-    opt::ChannelIdAndMessageId, responder::RequestQueue, wallet::WalletWorker, Catchup, Handler,
-    Responder, Wallet,
+    opt::ChannelIdAndMessageId, responder::RequestQueue, Catchup, Handler, Responder, Sender,
+    Wallet,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -133,19 +133,10 @@ impl Serve {
         // From this point on, the view service is synchronized.
         tracing::info!("initial sync complete");
 
-        // Make a worker to handle the wallet
-        let (wallet_requests, wallet_worker) = WalletWorker::new(
-            view,
-            custody,
-            fvk,
-            self.source_address,
-            self.node,
-            self.rpc_port,
-        );
+        let sender = Sender::new(0, fvk, view, custody);
 
         // Make a worker to handle the address queue
-        let (send_requests, responder) =
-            Responder::new(wallet_requests, self.max_addresses, self.values, self.fee);
+        let (send_requests, responder) = Responder::new(sender, self.max_addresses, self.values);
 
         let handler = Handler::new(self.rate_limit, self.reply_limit);
 
@@ -201,7 +192,6 @@ impl Serve {
                 result.unwrap().context("error in discord client service"),
             result = tokio::spawn(async move { responder.run().await }) =>
                 result.unwrap().context("error in responder service"),
-            result = wallet_worker.run() => result.context("error in wallet service"),
             result = catch_up => result.context("error in catchup service")?,
         }
     }
