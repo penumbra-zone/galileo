@@ -78,7 +78,7 @@ impl Response {
             for (addr, id) in self.succeeded.iter() {
                 write!(
                     response,
-                    "\n`{}` (in tx `{}`)",
+                    "\n`{}` (try `pcli v tx {}`)",
                     addr.display_short_form(),
                     id
                 )
