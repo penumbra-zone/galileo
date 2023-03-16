@@ -6,6 +6,12 @@ license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# this is way too complicated, the features in the penumbra crates need to be fixed
+[features]
+default = ["std", "parallel"]
+std = ["ark-ff/std"]
+parallel = ["ark-ff/parallel", "penumbra-wallet/parallel", "penumbra-crypto/parallel", "penumbra-custody/parallel", "penumbra-view/parallel", "penumbra-transaction/parallel", ]
+
 [dependencies]
 # Penumbra dependencies
 # TODO: sort out git-lfs dependency so we can fetch git deps again; GH29.
