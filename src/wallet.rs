@@ -136,7 +136,7 @@ impl<V: ViewClient, C: CustodyClient> WalletWorker<V, C> {
         let source_address = self.source;
 
         let plan = plan::send(
-            &self.fvk,
+            self.fvk.account_group_id(),
             &mut self.view,
             OsRng,
             &amounts,

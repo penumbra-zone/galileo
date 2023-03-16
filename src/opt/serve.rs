@@ -126,7 +126,7 @@ impl Serve {
         tracing::info!(
             "starting initial sync: please wait for sync to complete before requesting tokens"
         );
-        ViewClient::status_stream(&mut view, fvk.hash())
+        ViewClient::status_stream(&mut view, fvk.account_group_id())
             .await?
             .try_collect::<Vec<_>>()
             .await?;
