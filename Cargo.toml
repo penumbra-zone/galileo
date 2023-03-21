@@ -10,17 +10,16 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["std", "parallel"]
 std = ["ark-ff/std"]
-parallel = ["ark-ff/parallel", "penumbra-wallet/parallel", "penumbra-crypto/parallel", "penumbra-custody/parallel", "penumbra-view/parallel", "penumbra-transaction/parallel", ]
+parallel = ["penumbra-wallet/parallel", "penumbra-crypto/parallel"]
 
 [dependencies]
 # Penumbra dependencies
-# TODO: sort out git-lfs dependency so we can fetch git deps again; GH29.
-penumbra-proto = { path = "../penumbra/proto" }
-penumbra-crypto = { path = "../penumbra/crypto" }
-penumbra-custody = { path = "../penumbra/custody" }
-penumbra-wallet = { path = "../penumbra/wallet" }
-penumbra-view = { path = "../penumbra/view" }
-penumbra-transaction = { path = "../penumbra/transaction" }
+penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra" }
+penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra" }
+penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra" }
+penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra" }
+penumbra-view = { git = "https://github.com/penumbra-zone/penumbra" }
+penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", features = ["download-proving-keys"] }
 
 # External dependencies
 tower = "0.4"
