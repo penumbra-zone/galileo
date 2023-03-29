@@ -91,9 +91,11 @@ where
                 .view
                 .witness(self2.fvk.account_group_id(), &plan)
                 .await?;
-            let tx = plan
-                .build_concurrent(OsRng, &self2.fvk, auth_data, witness_data)
+            let unauth_tx = plan
+                .build_concurrent(OsRng, &self2.fvk, witness_data)
                 .await?;
+
+            let tx = unauth_tx.authorize(&mut OsRng, &auth_data)?;
 
             // 3. Broadcast the transaction and wait for confirmation.
             self2.view.broadcast_transaction(tx, true).await
