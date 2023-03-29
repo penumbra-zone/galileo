@@ -18,6 +18,7 @@ use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
 // use serenity::utils::token;
 use std::{env, path::PathBuf, time::Duration};
+use url::Url;
 
 use crate::{
     opt::ChannelIdAndMessageId, responder::RequestQueue, Catchup, Handler, Responder, Sender,
@@ -41,15 +42,9 @@ pub struct Serve {
     /// Path to the directory to use to store data [default: platform appdata directory].
     #[clap(long, short)]
     data_dir: Option<PathBuf>,
-    /// The address of the pd+tendermint node.
-    #[clap(short, long, default_value = "testnet.penumbra.zone")]
-    node: String,
-    /// The port to use to speak to pd's gRPC server.
-    #[clap(long, default_value = "8080")]
-    pd_port: u16,
-    /// The port to use to speak to tendermint.
-    #[clap(long, default_value = "26657")]
-    rpc_port: u16,
+    /// The URL of the pd gRPC endpoint on the remote node.
+    #[clap(short, long, default_value = "http://testnet.penumbra.zone:8080")]
+    node: Url,
     /// The source address index in the wallet to use when dispensing tokens (if unspecified uses
     /// any funds available).
     #[clap(long = "source", default_value = "0")]
@@ -114,10 +109,9 @@ impl Serve {
                 .to_string(),
             &fvk,
             self.node.clone(),
-            self.pd_port,
         )
         .await?;
-        let view_service = ViewService::new(view_storage, self.node.clone(), self.pd_port).await?;
+        let view_service = ViewService::new(view_storage, self.node.clone()).await?;
 
         // Now build the view and custody clients, doing gRPC with ourselves
         let mut view = ViewProtocolServiceClient::new(ViewProtocolServiceServer::new(view_service));
