@@ -58,6 +58,7 @@ async-stream = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 serde = "1"
 csv = "1.2"
+url = "2"
 
 # External dependencies
 tendermint-config = "0.24.0-pre.1"
