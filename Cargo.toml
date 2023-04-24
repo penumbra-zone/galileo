@@ -14,12 +14,12 @@ parallel = ["penumbra-wallet/parallel", "penumbra-crypto/parallel"]
 
 [dependencies]
 # Penumbra dependencies
-penumbra-proto = { git = "https://github.com/penumbra-zone/penumbra" }
-penumbra-crypto = { git = "https://github.com/penumbra-zone/penumbra" }
-penumbra-custody = { git = "https://github.com/penumbra-zone/penumbra" }
-penumbra-wallet = { git = "https://github.com/penumbra-zone/penumbra" }
-penumbra-view = { git = "https://github.com/penumbra-zone/penumbra" }
-penumbra-transaction = { git = "https://github.com/penumbra-zone/penumbra", features = ["download-proving-keys"] }
+penumbra-proto = { path = "../penumbra/proto" }
+penumbra-crypto = { path = "../penumbra/crypto" }
+penumbra-custody = { path = "../penumbra/custody" }
+penumbra-wallet = { path = "../penumbra/wallet" }
+penumbra-view = { path = "../penumbra/view" }
+penumbra-transaction = { path = "../penumbra/transaction", features = ["download-proving-keys"] }
 
 # External dependencies
 tower = "0.4"
