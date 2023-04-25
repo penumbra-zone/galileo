@@ -80,7 +80,7 @@ where
                 .custody
                 .authorize(AuthorizeRequest {
                     plan: plan.clone(),
-                    account_group_id: self2.fvk.account_group_id(),
+                    account_group_id: Some(self2.fvk.account_group_id()),
                     pre_authorizations: Vec::new(),
                 })
                 .await?
