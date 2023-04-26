@@ -26,6 +26,7 @@ tower = "0.4"
 ark-ff = "0.3"
 ark-serialize = "0.3"
 anyhow = "1"
+camino = "1"
 directories = "4.0.1"
 regex = "1"
 serenity = { version = "0.11", default-features = false, features = [

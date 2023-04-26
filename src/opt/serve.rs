@@ -102,15 +102,13 @@ impl Serve {
         let fvk = wallet.spend_key.full_viewing_key().clone();
 
         // Instantiate an in-memory view service.
-        let view_filepath = Some(
-            view_file
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Non-UTF8 view path"))?
-                .to_string(),
-        );
-        let view_storage =
-            penumbra_view::Storage::load_or_initialize(view_filepath, &fvk, self.node.clone())
-                .await?;
+        // We pass "None" for the storage path to use an in-memory db, as well.
+        let view_storage = penumbra_view::Storage::load_or_initialize(
+            None::<camino::Utf8PathBuf>,
+            &fvk,
+            self.node.clone(),
+        )
+        .await?;
         let view_service = ViewService::new(view_storage, self.node.clone()).await?;
 
         // Now build the view and custody clients, doing gRPC with ourselves
