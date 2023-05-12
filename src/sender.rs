@@ -98,7 +98,8 @@ where
             let tx = unauth_tx.authorize(&mut OsRng, &auth_data)?;
 
             // 3. Broadcast the transaction and wait for confirmation.
-            self2.view.broadcast_transaction(tx, true).await
+            let (tx_id, _detection_height) = self2.view.broadcast_transaction(tx, true).await?;
+            Ok(tx_id)
         }
         .boxed()
     }
