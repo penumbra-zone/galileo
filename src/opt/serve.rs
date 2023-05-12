@@ -89,7 +89,6 @@ impl Serve {
         });
         std::fs::create_dir_all(&data_dir).context("can create data dir")?;
 
-        let view_file = data_dir.clone().join("pcli-view.sqlite");
         let custody_file = data_dir.clone().join("custody.json");
 
         // Build a custody service...
