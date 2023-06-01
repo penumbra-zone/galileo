@@ -46,4 +46,8 @@ jobs:
           file: Containerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          # We disable layer caching to ensure that the most recent penumbra repo is used.
+          # Otherwise, the static git url for the repo will always result in a cache hit.
+          # TODO: update with dynamic build-args using e.g. current date to bust cache.
+          no-cache: true
           labels: ${{ steps.meta.outputs.labels }}
