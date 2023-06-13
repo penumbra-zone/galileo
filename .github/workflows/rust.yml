@@ -6,6 +6,8 @@ on:
     branches:
       - main
   # Run periodically to check for breakage, since we seldom update the galileo repo.
+  # This allows us to determine approximately when a breaking change was merged into
+  # the penumbra repo, so we can fix it ahead of a testnet release.
   schedule:
     - cron: "15 18 * * *"
   pull_request: {}
@@ -13,6 +15,32 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  build:
+    name: Build
+    runs-on: buildjet-16vcpu-ubuntu-2004
+    steps:
+      - name: Checkout galileo
+        uses: actions/checkout@v3
+
+      - name: Check out penumbra repo
+        uses: actions/checkout@v3
+        with:
+          repository: penumbra-zone/penumbra
+          path: penumbra-repo
+          lfs: true
+
+      - name: Move penumbra repo to relative path
+        run: mv penumbra-repo ../penumbra
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo build release
+        run: cargo build --release
+
   check:
     name: Check
     runs-on: buildjet-8vcpu-ubuntu-2004
@@ -46,7 +74,7 @@ jobs:
       - name: Checkout galileo
         uses: actions/checkout@v3
 
-      # N.B. `cargo check` does not require relpath dependencies to be present,
+      # N.B. `cargo fmt` does not require relpath dependencies to be present,
       # so we don't need to clone the penumbra repo here.
 
       - name: Install rust toolchain
