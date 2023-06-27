@@ -78,7 +78,7 @@ impl Response {
             for (addr, id) in self.succeeded.iter() {
                 write!(
                     response,
-                    "\n`{}`\ntry `pcli v tx {}`\nor visit https://app.testnet.penumbra.zone/transaction/{}",
+                    "\n`{}`\ntry `pcli v tx {}`\nor visit https://app.testnet.penumbra.zone/tx/?hash={}",
                     addr.display_short_form(),
                     id,
                     id,
