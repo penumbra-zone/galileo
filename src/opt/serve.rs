@@ -2,7 +2,8 @@ use anyhow::Context;
 use clap::Parser;
 use directories::ProjectDirs;
 use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
-use penumbra_crypto::{Value, Zero};
+use num_traits::identities::Zero;
+use penumbra_asset::Value;
 use penumbra_custody::soft_kms::SoftKms;
 use penumbra_proto::{
     custody::v1alpha1::{
@@ -48,7 +49,7 @@ pub struct Serve {
     /// The source address index in the wallet to use when dispensing tokens (if unspecified uses
     /// any funds available).
     #[clap(long = "source", default_value = "0")]
-    source_address: penumbra_crypto::keys::AddressIndex,
+    source_address: penumbra_keys::keys::AddressIndex,
     /// Message/channel IDs of as-yet unhonored fund requests. Will scan
     /// all messages including and since the one specified; think of it
     /// as "--catch-up-after". Can be specified as

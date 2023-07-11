@@ -1,8 +1,10 @@
 use std::{pin::Pin, task::Poll};
 
 use futures::{Future, FutureExt};
-use penumbra_crypto::{memo::MemoPlaintext, Address, FullViewingKey, Value};
+use penumbra_asset::Value;
 use penumbra_custody::{AuthorizeRequest, CustodyClient};
+use penumbra_keys::{Address, FullViewingKey};
+use penumbra_transaction::memo::MemoPlaintext;
 use penumbra_view::ViewClient;
 use penumbra_wallet::plan::Planner;
 use rand::rngs::OsRng;

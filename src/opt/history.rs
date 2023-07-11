@@ -3,7 +3,6 @@ use std::{env, sync::Arc};
 use anyhow::Context;
 use async_stream::stream;
 use clap::Parser;
-use csv;
 use futures::{Stream, StreamExt};
 use serde::Serialize;
 use serenity::{

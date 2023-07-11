@@ -9,12 +9,13 @@ license = "MIT OR Apache-2.0"
 # this is way too complicated, the features in the penumbra crates need to be fixed
 [features]
 default = ["parallel"]
-parallel = ["penumbra-wallet/parallel", "penumbra-crypto/parallel"]
+parallel = ["penumbra-wallet/parallel"]
 
 [dependencies]
 # Penumbra dependencies
 penumbra-proto = { path = "../penumbra/crates/proto" }
-penumbra-crypto = { path = "../penumbra/crates/core/crypto" }
+penumbra-asset = { path = "../penumbra/crates/core/asset" }
+penumbra-keys = { path = "../penumbra/crates/core/keys" }
 penumbra-custody = { path = "../penumbra/crates/custody" }
 penumbra-wallet = { path = "../penumbra/crates/wallet" }
 penumbra-view = { path = "../penumbra/crates/view" }
@@ -50,3 +51,4 @@ chrono = { version = "0.4", features = ["serde"] }
 serde = "1"
 csv = "1.2"
 url = "2"
+num-traits = "0.2"

@@ -1,4 +1,4 @@
-use penumbra_crypto::Address;
+use penumbra_keys::Address;
 use regex::Regex;
 use serenity::model::channel::Message;
 use tokio::sync::oneshot;

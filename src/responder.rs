@@ -1,5 +1,6 @@
-use penumbra_crypto::{Address, Value};
+use penumbra_asset::Value;
 use penumbra_custody::CustodyClient;
+use penumbra_keys::Address;
 use penumbra_transaction::Id;
 use penumbra_view::ViewClient;
 use serenity::prelude::TypeMapKey;

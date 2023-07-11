@@ -1,5 +1,5 @@
 use anyhow::Context;
-use penumbra_crypto::keys::SpendKey;
+use penumbra_keys::keys::SpendKey;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
