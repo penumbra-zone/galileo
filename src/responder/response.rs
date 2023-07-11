@@ -1,6 +1,6 @@
 use std::fmt::Write;
 
-use penumbra_crypto::Address;
+use penumbra_keys::Address;
 use penumbra_transaction::Id;
 use serenity::{client::Cache, model::id::GuildId, prelude::Mentionable};
 
