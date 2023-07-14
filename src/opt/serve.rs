@@ -44,7 +44,7 @@ pub struct Serve {
     #[clap(long, short)]
     data_dir: Option<PathBuf>,
     /// The URL of the pd gRPC endpoint on the remote node.
-    #[clap(short, long, default_value = "http://testnet.penumbra.zone:8080")]
+    #[clap(short, long, default_value = "https://grpc.testnet.penumbra.zone")]
     node: Url,
     /// The source address index in the wallet to use when dispensing tokens (if unspecified uses
     /// any funds available).
@@ -71,6 +71,7 @@ impl Serve {
             anyhow::bail!("all values must be non-zero");
         }
 
+        tracing::debug!("Checking discord token...");
         let discord_token =
             env::var("DISCORD_TOKEN").context("missing environment variable DISCORD_TOKEN")?;
 
@@ -81,6 +82,7 @@ impl Serve {
         //     anyhow::bail!("invalid discord token");
         // }
 
+        tracing::debug!("Loading custody keyfile");
         // Look up the path to the view state file per platform, creating the directory if needed
         let data_dir = self.data_dir.unwrap_or_else(|| {
             ProjectDirs::from("zone", "penumbra", "pcli")
@@ -101,6 +103,7 @@ impl Serve {
 
         let fvk = wallet.spend_key.full_viewing_key().clone();
 
+        tracing::debug!("Configuring ViewService");
         // Instantiate an in-memory view service.
         // We pass "None" for the storage path to use an in-memory db, as well.
         let view_storage = penumbra_view::Storage::load_or_initialize(
@@ -111,6 +114,7 @@ impl Serve {
         .await?;
         let view_service = ViewService::new(view_storage, self.node.clone()).await?;
 
+        tracing::debug!("Configuring ViewServiceClient");
         // Now build the view and custody clients, doing gRPC with ourselves
         let mut view = ViewProtocolServiceClient::new(ViewProtocolServiceServer::new(view_service));
 
@@ -132,6 +136,7 @@ impl Serve {
 
         let handler = Handler::new(self.rate_limit, self.reply_limit);
 
+        tracing::debug!("Configuring Discord client");
         // Make a new client using a token set by an environment variable, with our handlers
         let mut client = serenity::Client::builder(
             &discord_token,
