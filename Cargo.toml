@@ -52,3 +52,4 @@ serde = "1"
 csv = "1.2"
 url = "2"
 num-traits = "0.2"
+tonic = { version = "0.8.1", features = ["tls-webpki-roots", "tls"] }
