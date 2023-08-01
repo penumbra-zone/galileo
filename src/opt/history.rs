@@ -161,13 +161,19 @@ pub fn gather(
 
             for message in messages {
                 if let Some((response, request)) = Request::try_new(&message) {
-                    yield Ok((message.timestamp, message.author, message.id, response, request));
+                    // Skip self: since galileo posts replies containing addresses, its own messages
+                    // will found in the history scan. Technically we should check the userid,
+                    // as that's not spoofable, but we still want to ignore messages from spoofed
+                    // accounts too.
+                    if message.author.name != "galileo [penumbra]" {
+                        yield Ok((message.timestamp, message.author, message.id, response, request));
+                    }
 
-                    // Terminate after we see the after-message
-                    if let Some(ref after_message) = after_message {
-                        if message.id == after_message.id {
-                            return;
-                        }
+                }
+                // Terminate after we see the after-message
+                if let Some(ref after_message) = after_message {
+                    if message.id == after_message.id {
+                        return;
                     }
                 }
                 before = Some(message.id);
