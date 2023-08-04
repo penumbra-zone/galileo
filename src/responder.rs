@@ -121,7 +121,10 @@ where
                         }
                         // By default, anyhow::Error's Display impl only prints the outermost error;
                         // using the alternate formate specifier prints the entire chain of causes.
-                        Err(e) => failed.push((*addr, format!("{:#}", e))),
+                        Err(e) => {
+                            tracing::error!(?addr, ?e, "Failed to send funds");
+                            failed.push((*addr, format!("{:#}", e)))
+                        }
                     }
                 }
                 Some(AddressOrAlmost::Almost(addr)) => {
