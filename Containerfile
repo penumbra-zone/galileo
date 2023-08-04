@@ -1,21 +1,26 @@
+ARG PENUMBRA_VERSION=main
+# ARG PENUMBRA_VERSION=v0.54.1
 # Pull from Penumbra container, so we can grab a recent `pcli` without
 # needing to compile from source.
-FROM ghcr.io/penumbra-zone/penumbra:main AS penumbra
-FROM docker.io/rust AS builder
+FROM ghcr.io/penumbra-zone/penumbra:${PENUMBRA_VERSION} AS penumbra
 
+# Build the galileo binary
+FROM docker.io/rust:1-bullseye AS builder
+ARG PENUMBRA_VERSION=main
 RUN apt-get update && apt-get install -y \
         libssl-dev git-lfs clang
-# Shallow clone since we only want most recent HEAD; this should change
-# if/when we want to support specific refs, such as release tags, for Penumbra deps.
-RUN git clone --depth=1 https://github.com/penumbra-zone/penumbra /app/penumbra
-COPY . /app/galileo
-WORKDIR /app/galileo
+# Clone in Penumbra deps to relative path, required due to git-lfs.
+RUN git clone --depth 1 --branch "${PENUMBRA_VERSION}" https://github.com/penumbra-zone/penumbra /usr/src/penumbra
+COPY . /usr/src/galileo
+WORKDIR /usr/src/galileo
 RUN cargo build --release
 
-FROM docker.io/debian:stable-slim
+# Runtime container, copying in built artifacts
+FROM docker.io/debian:bullseye-slim
+RUN apt-get update && apt-get install -y ca-certificates
 RUN groupadd --gid 1000 penumbra \
         && useradd -m -d /home/penumbra -g 1000 -u 1000 penumbra
-COPY --from=builder /app/galileo/target/release/galileo /usr/bin/galileo
 COPY --from=penumbra /bin/pcli /usr/bin/pcli
+COPY --from=builder /usr/src/galileo/target/release/galileo /usr/bin/galileo
 WORKDIR /home/penumbra
 USER penumbra
