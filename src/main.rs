@@ -1,4 +1,7 @@
 #![recursion_limit = "256"]
+
+use tracing_subscriber::{prelude::*, EnvFilter};
+
 mod handler;
 pub use handler::Handler;
 
@@ -19,7 +22,13 @@ pub use catchup::Catchup;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    // Configuring logging
+    let fmt_layer = tracing_subscriber::fmt::layer().with_target(true);
+    let filter_layer = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("info"))?;
+    let registry = tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(fmt_layer);
+    registry.init();
 
     use clap::Parser;
     Opt::parse().exec().await
