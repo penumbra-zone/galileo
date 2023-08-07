@@ -67,40 +67,13 @@ but until then, we'll perform it manually, say, every other testnet.
 When we deploy a new testnet, we must bounce Galileo to keep the faucet working.
 The steps are:
 
-```
-# Log into galileo host
-ssh <your_first_name>@galileo.penumbra.zone
-# Stop running service
-sudo systemctl stop galileo
+1. Rebuild the Galileo container via [GHA](https://github.com/penumbra-zone/galileo/actions),
+   passing in the Penumbra tag version to build from, e.g. `v0.58.0`.
+2. Wait for the container build to complete, then run:
+   `kubectl set image deployments -l app.kubernetes.io/instance=galileo galileo=penumbra-v0.58.0`
+   substituting the correct version in the tag name.
 
-# Switch to unprivileged user
-sudo su -l www-data -s /bin/bash
-
-# Reset the client state for the new testnet
-cd ~/penumbra
-git fetch --tags
-git checkout <latest_tag>
-cargo run --release --bin pcli view reset
-
-# Update galileo's source code
-cd ~/galileo
-git pull origin main
-cargo update
-cargo build --release
-
-# Return to normal user
-exit
-
-# Edit the catch-up url arg
-sudo vim /etc/systemd/system/galileo.service
-# Start Galileo again:
-sudo systemctl daemon-reload
-sudo systemctl restart galileo
-
-# Confirm that Galileo is dispensing tokens by testing the faucet channel with your own address
-# Resupply Galileo wallet as needed
-# View logs for galileo at any time with:
-sudo journalctl -af -u galileo
-```
-
-These steps should be performed on release day, immediately after publishing the tag.
+Eventually we should automate these steps so they're performed automatically as part of a release.
+If you need to use the `--catch-up` flag, to dispense to prior messages in the Discord channel,
+consider running that action locally as a one-off. We don't want to set the catch-up CLI arg
+on the primary deployment, where service restarts will cause the catch-up logic to run again.
