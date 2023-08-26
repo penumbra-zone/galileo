@@ -5,7 +5,7 @@ use penumbra_transaction::Id;
 use serenity::{client::Cache, model::id::GuildId, prelude::Mentionable};
 
 /// The response from a request to dispense tokens to a set of addresses.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Response {
     /// The addresses that were successfully dispensed tokens.
     pub(super) succeeded: Vec<(Address, Id)>,

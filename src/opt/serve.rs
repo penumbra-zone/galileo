@@ -17,6 +17,7 @@ use penumbra_proto::{
 };
 use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
+use tokio::sync::oneshot;
 // use serenity::utils::token;
 use std::{env, path::PathBuf, time::Duration};
 use url::Url;
@@ -183,13 +184,19 @@ impl Serve {
             std::future::pending().await
         });
 
+        let (cancel_tx, cancel_rx) = oneshot::channel();
+
         // Start the client and the two workers
         tokio::select! {
             result = tokio::spawn(async move { client.start().await }) =>
                 result.unwrap().context("error in discord client service"),
-            result = tokio::spawn(async move { responder.run().await }) =>
+            result = tokio::spawn(async move { responder.run(cancel_tx).await }) =>
                 result.unwrap().context("error in responder service"),
             result = catch_up => result.context("error in catchup service")?,
+            _ = cancel_rx => {
+                // Cancellation received
+                Err(anyhow::anyhow!("cancellation received"))
+            }
         }
     }
 }
