@@ -5,6 +5,7 @@ use penumbra_transaction::Id;
 use penumbra_view::ViewClient;
 use serenity::prelude::TypeMapKey;
 use tokio::sync::mpsc;
+use tokio::time::{sleep, Duration};
 use tower::limit::ConcurrencyLimit;
 use tower::Service;
 use tower::ServiceExt;
@@ -68,14 +69,21 @@ where
     }
 
     /// Run the responder.
-    pub async fn run(mut self) -> anyhow::Result<()> {
+    pub async fn run(mut self, cancel_tx: tokio::sync::oneshot::Sender<()>) -> anyhow::Result<()> {
         while let Some(Request {
             addresses,
             response,
         }) = self.actions.recv().await
         {
             let reply = self.dispense(addresses).await?;
-            let _ = response.send(reply);
+            let _ = response.send(reply.clone());
+            sleep(Duration::from_millis(2000)).await;
+
+            if !reply.failed().is_empty() {
+                tracing::error!("failed to send funds to some addresses");
+                cancel_tx.send(()).unwrap();
+                return Err(anyhow::anyhow!("failed to send funds to some addresses"));
+            }
         }
 
         Ok(())
