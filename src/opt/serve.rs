@@ -104,7 +104,7 @@ impl Serve {
 
         let fvk = wallet.spend_key.full_viewing_key().clone();
 
-        tracing::debug!("Configuring ViewService");
+        tracing::debug!("Configuring ViewService against node {}", &self.node);
         // Instantiate an in-memory view service.
         // We pass "None" for the storage path to use an in-memory db, as well.
         let view_storage = penumbra_view::Storage::load_or_initialize(
