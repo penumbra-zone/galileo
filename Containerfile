@@ -5,7 +5,7 @@ ARG PENUMBRA_VERSION=main
 FROM ghcr.io/penumbra-zone/penumbra:${PENUMBRA_VERSION} AS penumbra
 
 # Build the galileo binary
-FROM docker.io/rust:1-bullseye AS builder
+FROM docker.io/rust:1-bookworm AS builder
 ARG PENUMBRA_VERSION=main
 RUN apt-get update && apt-get install -y \
         libssl-dev git-lfs clang
@@ -16,7 +16,7 @@ WORKDIR /usr/src/galileo
 RUN cargo build --release
 
 # Runtime container, copying in built artifacts
-FROM docker.io/debian:bullseye-slim
+FROM docker.io/debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates
 RUN groupadd --gid 1000 penumbra \
         && useradd -m -d /home/penumbra -g 1000 -u 1000 penumbra
