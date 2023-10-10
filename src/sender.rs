@@ -70,11 +70,7 @@ where
                     sender: self2.fvk.payment_address(0.into()).0,
                 })
                 .unwrap();
-            let plan = planner.plan(
-                &mut self2.view,
-                self2.fvk.account_group_id(),
-                self2.account.into(),
-            );
+            let plan = planner.plan(&mut self2.view, self2.fvk.wallet_id(), self2.account.into());
             let plan = plan.await?;
 
             // 2. Authorize and build the transaction.
@@ -82,17 +78,14 @@ where
                 .custody
                 .authorize(AuthorizeRequest {
                     plan: plan.clone(),
-                    account_group_id: Some(self2.fvk.account_group_id()),
+                    wallet_id: Some(self2.fvk.wallet_id()),
                     pre_authorizations: Vec::new(),
                 })
                 .await?
                 .data
                 .ok_or_else(|| anyhow::anyhow!("no auth data"))?
                 .try_into()?;
-            let witness_data = self2
-                .view
-                .witness(self2.fvk.account_group_id(), &plan)
-                .await?;
+            let witness_data = self2.view.witness(self2.fvk.wallet_id(), &plan).await?;
             let unauth_tx = plan
                 .build_concurrent(OsRng, &self2.fvk, witness_data)
                 .await?;
