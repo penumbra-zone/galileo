@@ -31,7 +31,7 @@ impl Request {
     ///
     /// Returns a receiver for the response to this request, as well as the request itself.
     pub fn try_new(message: &Message) -> Option<(oneshot::Receiver<Response>, Request)> {
-        let address_regex = Regex::new(r"penumbra[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*").unwrap();
+        let address_regex = Regex::new(r"penumbra1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*").unwrap();
 
         // Collect all the matches into a struct, bundled with the original message
         tracing::trace!("collecting addresses from message");
