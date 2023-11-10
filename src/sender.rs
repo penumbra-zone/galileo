@@ -1,14 +1,20 @@
-use std::{pin::Pin, task::Poll};
+use std::{
+    pin::Pin,
+    task::{Context as TaskContext, Poll},
+};
 
 use futures::{Future, FutureExt};
+use futures_util::Stream;
 use penumbra_asset::Value;
 use penumbra_custody::{AuthorizeRequest, CustodyClient};
 use penumbra_keys::{Address, FullViewingKey};
 use penumbra_transaction::memo::MemoPlaintext;
 use penumbra_view::ViewClient;
 use penumbra_wallet::plan::Planner;
+use pin_project_lite::pin_project;
 use rand::rngs::OsRng;
-use tower::limit::ConcurrencyLimit;
+use tower::{discover::Change, limit::ConcurrencyLimit};
+use tower_service::Service;
 
 /// The `Sender` maps `(Address, Vec<Value>)` send requests to `[u8; 32]` transaction hashes of sent funds.
 #[derive(Clone)]
@@ -106,5 +112,36 @@ where
         // We always return "ready" because we handle backpressure by making the
         // constructor return a concurrency limit wrapper.
         Poll::Ready(Ok(()))
+    }
+}
+
+type Key = u32;
+
+pin_project! {
+pub struct SenderSet<S> {
+    services: Vec<(Key, S)>,
+}
+}
+
+impl<S> SenderSet<S> {
+    pub fn new(services: Vec<(Key, S)>) -> Self {
+        Self { services }
+    }
+}
+
+impl<S> Stream for SenderSet<S>
+where
+    S: Service<(Address, Vec<Value>), Response = penumbra_transaction::Id, Error = anyhow::Error>,
+{
+    type Item = Result<Change<Key, S>, anyhow::Error>;
+
+    fn poll_next(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        match self.project().services.pop() {
+            Some((k, service)) => Poll::Ready(Some(Ok(Change::Insert(k, service)))),
+            None => {
+                // there may be more later
+                Poll::Pending
+            }
+        }
     }
 }

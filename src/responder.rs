@@ -6,11 +6,14 @@ use penumbra_view::ViewClient;
 use serenity::prelude::TypeMapKey;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
+use tower::balance::p2c::Balance;
 use tower::limit::ConcurrencyLimit;
+use tower::load::PendingRequestsDiscover;
 use tower::Service;
 use tower::ServiceExt;
 use tracing::Instrument;
 
+use crate::sender::SenderSet;
 use crate::Sender;
 
 mod request;
@@ -33,8 +36,13 @@ where
     actions: mpsc::Receiver<Request>,
     /// Values to send each time.
     values: Vec<Value>,
-    /// The transaction sender.
-    sender: ConcurrencyLimit<Sender<V, C>>,
+    /// The transaction senders.
+    senders: ConcurrencyLimit<
+        Balance<
+            PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
+            (Address, Vec<Value>),
+        >,
+    >,
 }
 
 /// `TypeMap` key for the address queue (so that `serenity` worker can send to it).
@@ -52,7 +60,12 @@ where
 {
     /// Create a new responder.
     pub fn new(
-        sender: ConcurrencyLimit<Sender<V, C>>,
+        senders: ConcurrencyLimit<
+            Balance<
+                PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
+                (Address, Vec<Value>),
+            >,
+        >,
         max_addresses: usize,
         values: Vec<Value>,
     ) -> (mpsc::Sender<Request>, Self) {
@@ -60,7 +73,7 @@ where
         (
             tx,
             Responder {
-                sender,
+                senders,
                 max_addresses,
                 actions: rx,
                 values,
@@ -113,9 +126,10 @@ where
                         tracing::info!("processing send request, waiting for readiness");
                     });
                     let rsp = self
-                        .sender
+                        .senders
                         .ready()
-                        .await?
+                        .await
+                        .map_err(|e| anyhow::anyhow!("{e}"))?
                         .call((*addr, self.values.clone()))
                         .instrument(span.clone());
                     tracing::info!("submitted send request");

@@ -1,7 +1,8 @@
 use anyhow::Context;
 use clap::Parser;
 use directories::ProjectDirs;
-use futures::{stream::FuturesUnordered, StreamExt, TryStreamExt};
+use futures::stream::FuturesUnordered;
+use futures_util::{stream::StreamExt, stream::TryStreamExt};
 use num_traits::identities::Zero;
 use penumbra_asset::Value;
 use penumbra_custody::soft_kms::SoftKms;
@@ -18,13 +19,15 @@ use penumbra_proto::{
 use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
 use tokio::sync::oneshot;
+use tower::limit::concurrency::ConcurrencyLimit;
 // use serenity::utils::token;
 use std::{env, path::PathBuf, time::Duration};
+use tower::{balance as lb, load};
 use url::Url;
 
 use crate::{
-    opt::ChannelIdAndMessageId, responder::RequestQueue, Catchup, Handler, Responder, Sender,
-    Wallet,
+    opt::ChannelIdAndMessageId, responder::RequestQueue, sender::SenderSet, Catchup, Handler,
+    Responder, Sender, Wallet,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -41,6 +44,9 @@ pub struct Serve {
     /// Maximum number of addresses per message to which to dispense tokens.
     #[clap(long, default_value = "1")]
     max_addresses: usize,
+    /// Number of accounts to send funds from. Funds will send from account indices [0, n-1].
+    #[clap(long, default_value = "4")]
+    account_count: u32,
     /// Path to the directory to use to store data [default: platform appdata directory].
     #[clap(long, short)]
     data_dir: Option<PathBuf>,
@@ -130,10 +136,28 @@ impl Serve {
         // From this point on, the view service is synchronized.
         tracing::info!("initial sync complete");
 
-        let sender = Sender::new(0, fvk, view, custody);
+        // Instantiate a sender for each account index.
+        let mut senders = vec![];
+        for account_id in 0..self.account_count {
+            let sender = Sender::new(account_id, fvk.clone(), view.clone(), custody.clone());
+            senders.push(sender);
+        }
+
+        let d = SenderSet::new(
+            senders
+                .into_iter()
+                .enumerate()
+                .map(|(k, v)| (k as u32, v))
+                .collect(),
+        );
+        let lb = lb::p2c::Balance::new(load::PendingRequestsDiscover::new(
+            d,
+            load::CompleteOnResponse::default(),
+        ));
+        let service = ConcurrencyLimit::new(lb, self.account_count.try_into().unwrap());
 
         // Make a worker to handle the address queue
-        let (send_requests, responder) = Responder::new(sender, self.max_addresses, self.values);
+        let (send_requests, responder) = Responder::new(service, self.max_addresses, self.values);
 
         let handler = Handler::new(self.rate_limit, self.reply_limit);
 
