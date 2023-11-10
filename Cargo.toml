@@ -19,14 +19,21 @@ penumbra-keys = { path = "../penumbra/crates/core/keys" }
 penumbra-custody = { path = "../penumbra/crates/custody" }
 penumbra-wallet = { path = "../penumbra/crates/wallet" }
 penumbra-view = { path = "../penumbra/crates/view" }
-penumbra-transaction = { path = "../penumbra/crates/core/transaction", features = ["download-proving-keys"] }
+penumbra-transaction = { path = "../penumbra/crates/core/transaction", features = [
+    "download-proving-keys",
+] }
 
 # External dependencies
-tower = "0.4"
+tower = { version = "0.4", features = ["balance"] }
+tower-service = { version = "0.3.1" }
 anyhow = "1"
+futures-util = { version = "0.3", default-features = false, features = [
+    "alloc",
+] }
 camino = "1"
 directories = "4.0.1"
 regex = "1"
+pin-project-lite = "0.2.7"
 serenity = { version = "0.11", default-features = false, features = [
     "client",
     "cache",
