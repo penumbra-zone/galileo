@@ -15,7 +15,7 @@ pub struct Request {
 }
 
 /// Either a correctly parsed address, or something that looks almost like it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum AddressOrAlmost {
     Address(Box<Address>),
     Almost(String),
