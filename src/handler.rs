@@ -113,7 +113,9 @@ impl SendHistory {
         tracing::trace!("finished pruning penumbra address send history");
     }
 
-    pub fn record_success(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
+    pub fn record_failure(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
+        // If the request failed, we set the notification count to zero, so that the rate
+        // limit will not apply to future requests
         if let Some((_, _, notified)) = self
             .discord_users
             .iter_mut()
@@ -264,7 +266,7 @@ impl EventHandler for Handler {
             self.send_history
                 .lock()
                 .unwrap()
-                .record_success(user_id, &penumbra_addresses);
+                .record_failure(user_id, &penumbra_addresses);
         }
     }
 
