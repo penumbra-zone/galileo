@@ -20,6 +20,7 @@ use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
 use tokio::sync::oneshot;
 use tower::limit::concurrency::ConcurrencyLimit;
+use tower::load::Load;
 // use serenity::utils::token;
 use std::{env, path::PathBuf, time::Duration};
 use tower::{balance as lb, load};
