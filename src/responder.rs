@@ -93,7 +93,7 @@ where
             response,
         }) = actions.recv().await
         {
-            let cancel_tx = cancel_tx.clone();
+            // let cancel_tx = cancel_tx.clone();
             let values = self.values.clone();
             let senders = self.senders.clone();
             tokio::spawn(async move {
@@ -106,7 +106,7 @@ where
 
                 if !reply.failed().is_empty() {
                     tracing::error!("failed to send funds to some addresses");
-                    cancel_tx.send(()).await.expect("able to send cancellation");
+                    // cancel_tx.send(()).await.expect("able to send cancellation");
                 }
             });
         }
