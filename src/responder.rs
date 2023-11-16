@@ -1,3 +1,5 @@
+use futures_util::stream;
+use futures_util::StreamExt as _;
 use penumbra_asset::Value;
 use penumbra_custody::CustodyClient;
 use penumbra_keys::Address;
@@ -7,11 +9,10 @@ use serenity::prelude::TypeMapKey;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};
 use tower::balance::p2c::Balance;
+use tower::buffer::Buffer;
 use tower::limit::ConcurrencyLimit;
 use tower::load::PendingRequestsDiscover;
-use tower::Service;
 use tower::ServiceExt;
-use tracing::Instrument;
 
 use crate::sender::SenderSet;
 use crate::Sender;
@@ -37,11 +38,14 @@ where
     /// Values to send each time.
     values: Vec<Value>,
     /// The transaction senders.
-    senders: ConcurrencyLimit<
-        Balance<
-            PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
-            (Address, Vec<Value>),
+    senders: Buffer<
+        ConcurrencyLimit<
+            Balance<
+                PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
+                (Address, Vec<Value>),
+            >,
         >,
+        (Address, Vec<Value>),
     >,
 }
 
@@ -73,7 +77,7 @@ where
         (
             tx,
             Responder {
-                senders,
+                senders: Buffer::new(senders, 32),
                 max_addresses,
                 actions: rx,
                 values,
@@ -114,7 +118,11 @@ where
         // Track addresses which couldn't be parsed
         let mut unparsed = Vec::<String>::new();
 
+        // Track the requests to send to the sender service.
+        let mut reqs = Vec::new();
+
         // Extract up to the maximum number of permissible valid addresses from the list
+        let mut sent_addresses = Vec::new();
         let mut count = 0;
         while count <= self.max_addresses {
             count += 1;
@@ -122,38 +130,55 @@ where
                 Some(AddressOrAlmost::Address(addr)) => {
                     // Reply to the originating message with the address
                     let span = tracing::info_span!("send", address = %addr);
+                    // TODO: could use tower "load" feature here
                     span.in_scope(|| {
                         tracing::info!("processing send request, waiting for readiness");
                     });
-                    let rsp = self
-                        .senders
-                        .ready()
-                        .await
-                        .map_err(|e| anyhow::anyhow!("{e}"))?
-                        .call((*addr, self.values.clone()))
-                        .instrument(span.clone());
-                    tracing::info!("submitted send request");
 
-                    match rsp.await {
-                        Ok(id) => {
-                            span.in_scope(|| {
-                                tracing::info!(id = %id, "send request succeeded");
-                            });
-                            succeeded.push((*addr, id));
-                        }
-                        // By default, anyhow::Error's Display impl only prints the outermost error;
-                        // using the alternate formate specifier prints the entire chain of causes.
-                        Err(e) => {
-                            tracing::error!(?addr, ?e, "Failed to send funds");
-                            failed.push((*addr, format!("{:#}", e)))
-                        }
-                    }
+                    let req = (*addr, self.values.clone());
+                    reqs.push(req);
+                    sent_addresses.push(*addr);
+
+                    span.in_scope(|| {
+                        tracing::info!("submitted send request");
+                    });
                 }
                 Some(AddressOrAlmost::Almost(addr)) => {
                     unparsed.push(addr);
                 }
                 None => break,
             }
+        }
+
+        let reqs = stream::iter(reqs);
+
+        let senders = self.senders.clone();
+        // Will return in ordered fashion, so we know the address in the `called` list
+        // corresponds to the task handle at the same index.
+        let mut responses = senders.call_all(reqs);
+
+        // Run the tasks concurrently.
+        let mut i = 0;
+        while let Some(result) = responses.next().await {
+            let addr = sent_addresses[i];
+            match result {
+                Ok(id) => {
+                    // Reply to the originating message with the address
+                    let span = tracing::info_span!("send", address = %addr);
+                    span.in_scope(|| {
+                        tracing::info!(id = %id, "send request succeeded");
+                    });
+                    succeeded.push((addr, id));
+                }
+                // By default, anyhow::Error's Display impl only prints the outermost error;
+                // using the alternate formate specifier prints the entire chain of causes.
+                Err(e) => {
+                    tracing::error!(?addr, ?e, "Failed to send funds");
+                    failed.push((addr, format!("{:#}", e)))
+                }
+            }
+
+            i += 1;
         }
 
         // Separate the rest of the list into unparsed and remaining valid ones
