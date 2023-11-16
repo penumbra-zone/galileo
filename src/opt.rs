@@ -26,7 +26,7 @@ impl Opt {
 
 #[derive(Debug, Clone, Parser)]
 pub enum Command {
-    /// Run the bot.
+    /// Run the bot, listening for Discord messages, dispensing tokens, and replying to users.
     Serve(serve::Serve),
     /// Export the history of requests from the channel as CSV to stdout.
     History(history::History),
