@@ -1,3 +1,4 @@
+use anyhow::Context;
 use futures_util::stream;
 use futures_util::StreamExt as _;
 use penumbra_asset::Value;
@@ -7,7 +8,6 @@ use penumbra_transaction::Id;
 use penumbra_view::ViewClient;
 use serenity::prelude::TypeMapKey;
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Duration};
 use tower::balance::p2c::Balance;
 use tower::buffer::Buffer;
 use tower::limit::ConcurrencyLimit;
@@ -86,115 +86,139 @@ where
     }
 
     /// Run the responder.
-    pub async fn run(mut self, cancel_tx: tokio::sync::oneshot::Sender<()>) -> anyhow::Result<()> {
+    pub async fn run(self, cancel_tx: tokio::sync::mpsc::Sender<()>) -> anyhow::Result<()> {
+        let mut actions = self.actions;
         while let Some(Request {
             addresses,
             response,
-        }) = self.actions.recv().await
+        }) = actions.recv().await
         {
-            let reply = self.dispense(addresses).await?;
-            let _ = response.send(reply.clone());
-            sleep(Duration::from_millis(2000)).await;
+            let cancel_tx = cancel_tx.clone();
+            let values = self.values.clone();
+            let senders = self.senders.clone();
+            tokio::spawn(async move {
+                let reply = dispense(addresses, self.max_addresses, values, senders)
+                    .await
+                    .context("unable to dispense tokens")
+                    .unwrap();
 
-            if !reply.failed().is_empty() {
-                tracing::error!("failed to send funds to some addresses");
-                cancel_tx.send(()).unwrap();
-                return Err(anyhow::anyhow!("failed to send funds to some addresses"));
-            }
+                let _ = response.send(reply.clone());
+
+                if !reply.failed().is_empty() {
+                    tracing::error!("failed to send funds to some addresses");
+                    cancel_tx.send(()).await.expect("able to send cancellation");
+                }
+            });
         }
 
         Ok(())
     }
+}
 
-    /// Try to dispense tokens to the given addresses, collecting [`Response`] describing what
-    /// happened.
-    async fn dispense(&mut self, mut addresses: Vec<AddressOrAlmost>) -> anyhow::Result<Response> {
-        // Track addresses to which we successfully dispensed tokens
-        let mut succeeded = Vec::<(Address, Id)>::new();
+/// Try to dispense tokens to the given addresses, collecting [`Response`] describing what
+/// happened.
+async fn dispense<V, C>(
+    mut addresses: Vec<AddressOrAlmost>,
+    max_addresses: usize,
+    values: Vec<Value>,
+    senders: Buffer<
+        ConcurrencyLimit<
+            Balance<
+                PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
+                (Address, Vec<Value>),
+            >,
+        >,
+        (Address, Vec<Value>),
+    >,
+) -> anyhow::Result<Response>
+where
+    V: ViewClient + Clone + Send + 'static,
+    C: CustodyClient + Clone + Send + 'static,
+{
+    // Track addresses to which we successfully dispensed tokens
+    let mut succeeded = Vec::<(Address, Id)>::new();
 
-        // Track addresses (and associated errors) which we tried to send tokens to, but failed
-        let mut failed = Vec::<(Address, String)>::new();
+    // Track addresses (and associated errors) which we tried to send tokens to, but failed
+    let mut failed = Vec::<(Address, String)>::new();
 
-        // Track addresses which couldn't be parsed
-        let mut unparsed = Vec::<String>::new();
+    // Track addresses which couldn't be parsed
+    let mut unparsed = Vec::<String>::new();
 
-        // Track the requests to send to the sender service.
-        let mut reqs = Vec::new();
+    // Track the requests to send to the sender service.
+    let mut reqs = Vec::new();
 
-        // Extract up to the maximum number of permissible valid addresses from the list
-        let mut sent_addresses = Vec::new();
-        let mut count = 0;
-        while count <= self.max_addresses {
-            count += 1;
-            match addresses.pop() {
-                Some(AddressOrAlmost::Address(addr)) => {
-                    // Reply to the originating message with the address
-                    let span = tracing::info_span!("send", address = %addr);
-                    // TODO: could use tower "load" feature here
-                    span.in_scope(|| {
-                        tracing::info!("processing send request, waiting for readiness");
-                    });
+    // Extract up to the maximum number of permissible valid addresses from the list
+    let mut sent_addresses = Vec::new();
+    let mut count = 0;
+    while count <= max_addresses {
+        count += 1;
+        match addresses.pop() {
+            Some(AddressOrAlmost::Address(addr)) => {
+                // Reply to the originating message with the address
+                let span = tracing::info_span!("send", address = %addr);
+                // TODO: could use tower "load" feature here
+                span.in_scope(|| {
+                    tracing::info!("processing send request, waiting for readiness");
+                });
 
-                    let req = (*addr, self.values.clone());
-                    reqs.push(req);
-                    sent_addresses.push(*addr);
+                let req = (*addr, values.clone());
+                reqs.push(req);
+                sent_addresses.push(*addr);
 
-                    span.in_scope(|| {
-                        tracing::info!("submitted send request");
-                    });
-                }
-                Some(AddressOrAlmost::Almost(addr)) => {
-                    unparsed.push(addr);
-                }
-                None => break,
+                span.in_scope(|| {
+                    tracing::info!("submitted send request");
+                });
             }
-        }
-
-        let reqs = stream::iter(reqs);
-
-        let senders = self.senders.clone();
-        // Will return in ordered fashion, so we know the address in the `called` list
-        // corresponds to the task handle at the same index.
-        let mut responses = senders.call_all(reqs);
-
-        // Run the tasks concurrently.
-        let mut i = 0;
-        while let Some(result) = responses.next().await {
-            let addr = sent_addresses[i];
-            match result {
-                Ok(id) => {
-                    // Reply to the originating message with the address
-                    let span = tracing::info_span!("send", address = %addr);
-                    span.in_scope(|| {
-                        tracing::info!(id = %id, "send request succeeded");
-                    });
-                    succeeded.push((addr, id));
-                }
-                // By default, anyhow::Error's Display impl only prints the outermost error;
-                // using the alternate formate specifier prints the entire chain of causes.
-                Err(e) => {
-                    tracing::error!(?addr, ?e, "Failed to send funds");
-                    failed.push((addr, format!("{:#}", e)))
-                }
+            Some(AddressOrAlmost::Almost(addr)) => {
+                unparsed.push(addr);
             }
-
-            i += 1;
+            None => break,
         }
-
-        // Separate the rest of the list into unparsed and remaining valid ones
-        let mut remaining = Vec::<Address>::new();
-        for addr in addresses {
-            match addr {
-                AddressOrAlmost::Address(addr) => remaining.push(*addr),
-                AddressOrAlmost::Almost(addr) => unparsed.push(addr),
-            }
-        }
-
-        Ok(Response {
-            succeeded,
-            failed,
-            unparsed,
-            remaining,
-        })
     }
+
+    let reqs = stream::iter(reqs);
+
+    // Will return in ordered fashion, so we know the address in the `called` list
+    // corresponds to the task handle at the same index.
+    let mut responses = senders.call_all(reqs);
+
+    // Run the tasks concurrently.
+    let mut i = 0;
+    while let Some(result) = responses.next().await {
+        let addr = sent_addresses[i];
+        match result {
+            Ok(id) => {
+                // Reply to the originating message with the address
+                let span = tracing::info_span!("send", address = %addr);
+                span.in_scope(|| {
+                    tracing::info!(id = %id, "send request succeeded");
+                });
+                succeeded.push((addr, id));
+            }
+            // By default, anyhow::Error's Display impl only prints the outermost error;
+            // using the alternate formate specifier prints the entire chain of causes.
+            Err(e) => {
+                tracing::error!(?addr, ?e, "Failed to send funds");
+                failed.push((addr, format!("{:#}", e)))
+            }
+        }
+
+        i += 1;
+    }
+
+    // Separate the rest of the list into unparsed and remaining valid ones
+    let mut remaining = Vec::<Address>::new();
+    for addr in addresses {
+        match addr {
+            AddressOrAlmost::Address(addr) => remaining.push(*addr),
+            AddressOrAlmost::Almost(addr) => unparsed.push(addr),
+        }
+    }
+
+    Ok(Response {
+        succeeded,
+        failed,
+        unparsed,
+        remaining,
+    })
 }

@@ -19,7 +19,7 @@ use penumbra_proto::{
 use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
 use std::{env, path::PathBuf, time::Duration};
-use tokio::sync::oneshot;
+use tokio::sync::mpsc;
 use tower::limit::concurrency::ConcurrencyLimit;
 use tower::{balance as lb, load};
 use url::Url;
@@ -207,7 +207,7 @@ impl Serve {
             std::future::pending().await
         });
 
-        let (cancel_tx, cancel_rx) = oneshot::channel();
+        let (cancel_tx, mut cancel_rx) = mpsc::channel(1);
 
         // Start the client and the two workers
         tokio::select! {
@@ -216,7 +216,7 @@ impl Serve {
             result = tokio::spawn(async move { responder.run(cancel_tx).await }) =>
                 result.unwrap().context("error in responder service"),
             result = catch_up => result.context("error in catchup service")?,
-            _ = cancel_rx => {
+            _ = cancel_rx.recv() => {
                 // Cancellation received
                 Err(anyhow::anyhow!("cancellation received"))
             }
