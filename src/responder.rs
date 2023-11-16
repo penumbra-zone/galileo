@@ -1,27 +1,18 @@
-use std::borrow::BorrowMut;
-use std::collections::BTreeMap;
-use std::pin::Pin;
-use std::sync::Arc;
-
-use anyhow::{bail, Context, Result};
-use futures::stream::FuturesUnordered;
-use futures_util::{Future, StreamExt as _};
+use futures_util::stream;
+use futures_util::StreamExt as _;
 use penumbra_asset::Value;
 use penumbra_custody::CustodyClient;
 use penumbra_keys::Address;
 use penumbra_transaction::Id;
 use penumbra_view::ViewClient;
 use serenity::prelude::TypeMapKey;
-use tokio::runtime::Handle;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use tower::balance::p2c::Balance;
+use tower::buffer::Buffer;
 use tower::limit::ConcurrencyLimit;
 use tower::load::PendingRequestsDiscover;
-use tower::Service;
 use tower::ServiceExt;
-use tracing::{Instrument, Span};
 
 use crate::sender::SenderSet;
 use crate::Sender;
@@ -47,15 +38,14 @@ where
     /// Values to send each time.
     values: Vec<Value>,
     /// The transaction senders.
-    senders: Arc<
-        Mutex<
-            ConcurrencyLimit<
-                Balance<
-                    PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
-                    (Address, Vec<Value>),
-                >,
+    senders: Buffer<
+        ConcurrencyLimit<
+            Balance<
+                PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
+                (Address, Vec<Value>),
             >,
         >,
+        (Address, Vec<Value>),
     >,
 }
 
@@ -87,7 +77,7 @@ where
         (
             tx,
             Responder {
-                senders: Arc::new(Mutex::new(senders)),
+                senders: Buffer::new(senders, 32),
                 max_addresses,
                 actions: rx,
                 values,
@@ -128,27 +118,11 @@ where
         // Track addresses which couldn't be parsed
         let mut unparsed = Vec::<String>::new();
 
-        // Create a `FuturesUnordered` to track the send futures we're about to create and run.
-        let mut tasks = Vec::new();
-        // let mut tasks = FuturesUnordered::<
-        //     Pin<
-        //         Box<
-        //             dyn Future<
-        //                 Output = (
-        //                     Address,
-        //                     Result<
-        //                         penumbra_transaction::Id,
-        //                         std::boxed::Box<
-        //                             dyn std::error::Error + std::marker::Send + std::marker::Sync,
-        //                         >,
-        //                     >,
-        //                 ),
-        //             >,
-        //         >,
-        //     >,
-        // >::new();
+        // Track the requests to send to the sender service.
+        let mut reqs = Vec::new();
 
         // Extract up to the maximum number of permissible valid addresses from the list
+        let mut sent_addresses = Vec::new();
         let mut count = 0;
         while count <= self.max_addresses {
             count += 1;
@@ -161,54 +135,13 @@ where
                         tracing::info!("processing send request, waiting for readiness");
                     });
 
-                    async fn send_request<Vi, Ci>(
-                        addr: Address,
-                        values: Vec<Value>,
-                        span: Span,
-                        senders: &mut ConcurrencyLimit<
-                            Balance<
-                                PendingRequestsDiscover<
-                                    SenderSet<ConcurrencyLimit<Sender<Vi, Ci>>>,
-                                >,
-                                (Address, Vec<Value>),
-                            >,
-                        >,
-                    ) -> (
-                        Address,
-                        Result<
-                            penumbra_transaction::Id,
-                            std::boxed::Box<
-                                dyn std::error::Error + std::marker::Send + std::marker::Sync,
-                            >,
-                        >,
-                    )
-                    where
-                        Vi: ViewClient + Clone + Send + 'static,
-                        Ci: CustodyClient + Clone + Send + 'static,
-                    {
-                        (
-                            addr,
-                            senders
-                                .call((addr, values.clone()))
-                                .instrument(span.clone())
-                                .await,
-                        )
-                    }
+                    let req = (*addr, self.values.clone());
+                    reqs.push(req);
+                    sent_addresses.push(*addr);
 
-                    let values = self.values.clone();
-                    let rsp = tokio::spawn(async {
-                        let s = self.senders.clone().lock().await;
-                        send_request(
-                            *addr.clone(),
-                            values,
-                            span.clone(),
-                            s.ready().await.unwrap(),
-                        )
+                    span.in_scope(|| {
+                        tracing::info!("submitted send request");
                     });
-
-                    tracing::info!("submitted send request");
-
-                    tasks.push(rsp);
                 }
                 Some(AddressOrAlmost::Almost(addr)) => {
                     unparsed.push(addr);
@@ -217,10 +150,17 @@ where
             }
         }
 
+        let reqs = stream::iter(reqs);
+
+        let senders = self.senders.clone();
+        // Will return in ordered fashion, so we know the address in the `called` list
+        // corresponds to the task handle at the same index.
+        let mut responses = senders.call_all(reqs);
+
         // Run the tasks concurrently.
-        // while let Some((addr, result)) = tasks.next().await {
-        for handle in tasks {
-            let (addr, result) = handle.await.unwrap().await;
+        let mut i = 0;
+        while let Some(result) = responses.next().await {
+            let addr = sent_addresses[i];
             match result {
                 Ok(id) => {
                     // Reply to the originating message with the address
@@ -237,6 +177,8 @@ where
                     failed.push((addr, format!("{:#}", e)))
                 }
             }
+
+            i += 1;
         }
 
         // Separate the rest of the list into unparsed and remaining valid ones

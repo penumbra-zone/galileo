@@ -18,11 +18,9 @@ use penumbra_proto::{
 };
 use penumbra_view::{ViewClient, ViewService};
 use serenity::prelude::GatewayIntents;
+use std::{env, path::PathBuf, time::Duration};
 use tokio::sync::oneshot;
 use tower::limit::concurrency::ConcurrencyLimit;
-use tower::load::Load;
-// use serenity::utils::token;
-use std::{env, path::PathBuf, time::Duration};
 use tower::{balance as lb, load};
 use url::Url;
 
@@ -220,11 +218,7 @@ impl Serve {
             result = catch_up => result.context("error in catchup service")?,
             _ = cancel_rx => {
                 // Cancellation received
-                // temporarily disabled due to this causing service restarts leading to long sync times
-                // after restart
-                tracing::warn!("cancellation received");
-                Ok(())
-                // Err(anyhow::anyhow!("cancellation received"))
+                Err(anyhow::anyhow!("cancellation received"))
             }
         }
     }
