@@ -9,7 +9,7 @@ use serenity::{
     client::{Context, EventHandler},
     model::gateway::Ready,
     model::{
-        channel::Message,
+        channel::{GuildChannel, Message},
         id::{GuildId, UserId},
     },
 };
@@ -20,6 +20,7 @@ use crate::responder::AddressOrAlmost;
 
 use super::responder::{Request, RequestQueue};
 
+/// Represents configuration and state for faucet bot.
 pub struct Handler {
     /// The minimum duration between dispensing tokens to a user.
     rate_limit: Duration,
@@ -29,6 +30,101 @@ pub struct Handler {
     /// times we've told the user about the rate limit (so that eventually we can stop replying if
     /// they keep asking).
     send_history: Arc<Mutex<SendHistory>>,
+}
+
+impl Handler {
+    pub fn new(rate_limit: Duration, reply_limit: usize) -> Self {
+        Handler {
+            rate_limit,
+            reply_limit,
+            send_history: Arc::new(Mutex::new(SendHistory::new())),
+        }
+    }
+    /// Check whether the bot can proceed with honoring this request,
+    /// performing preflight checks on server and channel configuration,
+    /// avoiding self-sends, and honoring ratelimits.
+    async fn should_send(&self, ctx: Context, message: Message) -> anyhow::Result<bool> {
+        tracing::trace!("parsing message: {:#?}", message);
+        let message_info = MessageInfo::new(message.clone(), ctx.clone())?;
+        let self_id = ctx.cache.current_user().id;
+
+        // Stop if we're not allowed to respond in this channel
+        if let Ok(self_permissions) = message_info
+            .guild_channel
+            .permissions_for_user(&ctx, self_id)
+        {
+            if !self_permissions.send_messages() {
+                tracing::debug!(
+                    ?message_info.guild_channel,
+                    "not allowed to send messages in this channel"
+                );
+                return Ok(false);
+            }
+        } else {
+            return Ok(false);
+        };
+
+        // TODO: add check for channel id, bailing out if channel doesn't match
+
+        // Don't trigger on messages we ourselves send
+        if message_info.user_id == self_id {
+            tracing::trace!("detected message from ourselves");
+            return Ok(false);
+        }
+
+        // If we made it this far, it's OK to send.
+        return Ok(true);
+    }
+}
+
+/// Representation of a Discord message, containing only the fields
+/// relevant for processing a faucet request.
+// TODO: consider using `serenity::model::channel::Message` instead.
+pub struct MessageInfo {
+    /// Discord user ID of the sender of the message.
+    pub user_id: UserId,
+    /// Discord human-readable username for sender of message.
+    pub user_name: String,
+    /// Discord guild (server) ID for the channel in which this message was sent.
+    pub guild_id: GuildId,
+    /// Discord guild channel in which the message was posted.
+    pub guild_channel: GuildChannel,
+}
+
+impl MessageInfo {
+    pub fn new(message: Message, ctx: Context) -> anyhow::Result<MessageInfo> {
+        // Get the guild id of this message. In Discord nomenclature,
+        // a "guild" is the overarching server that contains channels.
+        let guild_id = match message.guild_id {
+            Some(guild_id) => guild_id,
+            None => {
+                // Assuming Galileo is targeting the Penumbra Labs Discord server,
+                // we should never hit this branch.
+                tracing::warn!("could not determine guild for message: {:#?}", message);
+                anyhow::bail!("");
+            }
+        };
+
+        // Get the channel of this message.
+        let guild_channel = match ctx.cache.guild_channel(message.channel_id) {
+            Some(guild_channel) => guild_channel,
+            None => {
+                // As above, assuming Galileo is targeting the Penumbra Labs Discord server,
+                // we should never hit this branch.
+                tracing::warn!("could not determine channel for message: {:#?}", message);
+                anyhow::bail!("");
+            }
+        };
+
+        let user_id = message.author.id;
+        let user_name = message.author.name.clone();
+        Ok(MessageInfo {
+            user_id,
+            user_name,
+            guild_id,
+            guild_channel,
+        })
+    }
 }
 
 struct SendHistory {
@@ -133,59 +229,19 @@ impl SendHistory {
     }
 }
 
-impl Handler {
-    pub fn new(rate_limit: Duration, reply_limit: usize) -> Self {
-        Handler {
-            rate_limit,
-            reply_limit,
-            send_history: Arc::new(Mutex::new(SendHistory::new())),
-        }
-    }
-}
-
 #[async_trait]
 impl EventHandler for Handler {
     #[instrument(skip(self, ctx))]
+    /// Respond to faucet request. For first-time requests, will spend a bit.
+    /// If the faucet request duplicates a previous request within the timeout
+    /// window, then Galileo will respond instructing the user to wait longer.
     async fn message(&self, ctx: Context, message: Message) {
-        tracing::trace!("parsing message: {:#?}", message);
-        // Get the guild id of this message
-        let guild_id = if let Some(guild_id) = message.guild_id {
-            guild_id
-        } else {
-            return;
-        };
-
-        // Get the channel of this message
-        let guild_channel = if let Some(guild_channel) = ctx.cache.guild_channel(message.channel_id)
-        {
-            guild_channel
-        } else {
-            tracing::trace!("could not find server");
-            return;
-        };
-
-        let self_id = ctx.cache.current_user().id;
-        let user_id = message.author.id;
-        let user_name = message.author.name.clone();
-
-        // Stop if we're not allowed to respond in this channel
-        if let Ok(self_permissions) = guild_channel.permissions_for_user(&ctx, self_id) {
-            if !self_permissions.send_messages() {
-                tracing::trace!(
-                    ?guild_channel,
-                    "not allowed to send messages in this channel"
-                );
-                return;
-            }
-        } else {
-            return;
-        };
-
-        // Don't trigger on messages we ourselves send
-        if user_id == self_id {
-            tracing::trace!("detected message from ourselves");
+        // Check whether we should proceed.
+        if let Err(_e) = self.should_send(ctx.clone(), message.clone()).await {
             return;
         }
+
+        let message_info = MessageInfo::new(message.clone(), ctx.clone()).unwrap();
 
         // Prune the send history of all expired rate limit timeouts
         self.send_history.lock().unwrap().prune(self.rate_limit);
@@ -205,13 +261,13 @@ impl EventHandler for Handler {
             .send_history
             .lock()
             .unwrap()
-            .is_rate_limited(user_id, &penumbra_addresses);
+            .is_rate_limited(message_info.user_id, &penumbra_addresses);
 
         if let Some((last_fulfilled, notified)) = rate_limited {
             tracing::info!(
-                ?user_name,
+                ?message_info.user_name,
                 ?notified,
-                user_id = ?user_id.to_string(),
+                user_id = ?message_info.user_id.to_string(),
                 ?last_fulfilled,
                 "rate-limited user"
             );
@@ -237,11 +293,11 @@ impl EventHandler for Handler {
         }
 
         // Push the user into the send history queue for rate-limiting in the future
-        tracing::trace!(?user_name, user_id = ?user_id.to_string(), "pushing user into send history");
+        tracing::trace!(user_name = ?message_info.user_name, user_id = ?message_info.user_id.to_string(), "pushing user into send history");
         self.send_history
             .lock()
             .unwrap()
-            .record_request(user_id, &penumbra_addresses);
+            .record_request(message_info.user_id, &penumbra_addresses);
 
         // Send the message to the queue, to be processed asynchronously
         tracing::trace!("sending message to worker queue");
@@ -255,18 +311,23 @@ impl EventHandler for Handler {
             .expect("send to queue always succeeds");
 
         // Broadcast to the channel that we are typing, so users know something is happening
-        if let Err(e) = guild_channel.broadcast_typing(&ctx).await {
+        if let Err(e) = message_info.guild_channel.broadcast_typing(&ctx).await {
             tracing::error!(error = ?e, "failed to broadcast typing");
         }
 
         // Reply to the user with the response from the responder
         if let Ok(response) = response.await {
-            reply(&ctx, message, response.summary(&ctx, guild_id).await).await;
+            reply(
+                &ctx,
+                message,
+                response.summary(&ctx, message_info.guild_id).await,
+            )
+            .await;
         } else {
             self.send_history
                 .lock()
                 .unwrap()
-                .record_failure(user_id, &penumbra_addresses);
+                .record_failure(message_info.user_id, &penumbra_addresses);
         }
     }
 
@@ -284,10 +345,13 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, _: Context, ready: Ready) {
-        tracing::info!("{} is connected!", ready.user.name);
+        tracing::info!(user = ?ready.user.name, "discord client is connected");
     }
 }
 
+/// Send Discord message, replying to a prior message from another user.
+/// The message is customizable, because the reply may be to inform
+/// about ratelimit.
 async fn reply(ctx: &Context, message: impl Borrow<Message>, response: impl Borrow<str>) {
     message
         .borrow()
