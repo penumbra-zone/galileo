@@ -99,11 +99,11 @@ impl Serve {
         std::fs::create_dir_all(&data_dir).context("can create data dir")?;
 
         let view_file = data_dir.clone().join("pcli-view.sqlite");
-        let custody_file = data_dir.clone().join("custody.json");
+        let pcli_config_file = data_dir.clone().join("config.toml");
 
         // Build a custody service...
-        let wallet =
-            Wallet::load(custody_file).context("Failed to load wallet from local custody file")?;
+        let wallet = Wallet::load(pcli_config_file)
+            .context("Failed to load wallet from local custody file")?;
         let soft_kms = SoftKms::new(wallet.spend_key.clone().into());
         let custody =
             CustodyProtocolServiceClient::new(CustodyProtocolServiceServer::new(soft_kms));
