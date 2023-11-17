@@ -17,7 +17,7 @@ RUN cargo build --release
 
 # Runtime container, copying in built artifacts
 FROM docker.io/debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates
+RUN apt-get update && apt-get install -y ca-certificates curl jq
 RUN groupadd --gid 1000 penumbra \
         && useradd -m -d /home/penumbra -g 1000 -u 1000 penumbra
 COPY --from=penumbra /bin/pcli /usr/bin/pcli
