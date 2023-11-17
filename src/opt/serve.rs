@@ -98,6 +98,7 @@ impl Serve {
         });
         std::fs::create_dir_all(&data_dir).context("can create data dir")?;
 
+        let view_file = data_dir.clone().join("pcli-view.sqlite");
         let custody_file = data_dir.clone().join("custody.json");
 
         // Build a custody service...
@@ -110,14 +111,15 @@ impl Serve {
         let fvk = wallet.spend_key.full_viewing_key().clone();
 
         tracing::debug!("Configuring ViewService against node {}", &self.node);
-        // Instantiate an in-memory view service.
-        // We pass "None" for the storage path to use an in-memory db, as well.
-        let view_storage = penumbra_view::Storage::load_or_initialize(
-            None::<camino::Utf8PathBuf>,
-            &fvk,
-            self.node.clone(),
-        )
-        .await?;
+        let view_filepath = Some(
+            view_file
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Non-UTF8 view path"))?
+                .to_string(),
+        );
+        let view_storage =
+            penumbra_view::Storage::load_or_initialize(view_filepath, &fvk, self.node.clone())
+                .await?;
         let view_service = ViewService::new(view_storage, self.node.clone()).await?;
 
         tracing::debug!("Configuring ViewServiceClient");
@@ -218,11 +220,7 @@ impl Serve {
             result = catch_up => result.context("error in catchup service")?,
             _ = cancel_rx.recv() => {
                 // Cancellation received
-                // temporarily disabled due to this causing service restarts leading to long sync times
-                // after restart
-                tracing::warn!("cancellation received");
-                Ok(())
-                // Err(anyhow::anyhow!("cancellation received"))
+                Err(anyhow::anyhow!("cancellation received"))
             }
         }
     }
