@@ -60,3 +60,4 @@ csv = "1.2"
 url = "2"
 num-traits = "0.2"
 tonic = { version = "0.10", features = ["tls-webpki-roots", "tls"] }
+toml = "0.7"

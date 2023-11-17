@@ -2,6 +2,7 @@ use anyhow::Context;
 use penumbra_keys::keys::SpendKey;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use toml;
 
 /// A wallet file storing a single spend authority.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,13 +13,16 @@ pub struct Wallet {
 impl Wallet {
     /// Read the wallet data from the provided path.
     pub fn load(path: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
-        let custody_json: serde_json::Value =
-            serde_json::from_slice(std::fs::read(path)?.as_slice())?;
-        let sk_str = match custody_json["spend_key"].as_str() {
+        let config_contents = std::fs::read_to_string(&path).context(
+            "pcli config file not found. hint: run 'pcli init soft-kms import-phrase' to import key material",
+        )?;
+        let config_toml: toml::Table = toml::from_str(&config_contents)?;
+
+        let sk_str = match config_toml["custody"]["spend_key"].as_str() {
             Some(s) => s,
             None => {
                 return Err(anyhow::anyhow!(
-                    "'spend_key' field not found in custody JSON file"
+                    "'spend_key' field not found in custody TOML file"
                 ))
             }
         };
