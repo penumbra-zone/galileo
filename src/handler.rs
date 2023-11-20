@@ -30,14 +30,19 @@ pub struct Handler {
     /// times we've told the user about the rate limit (so that eventually we can stop replying if
     /// they keep asking).
     send_history: Arc<Mutex<SendHistory>>,
+    /// Whether read-only mode is enabled. If false, Penumbra transactions will be sent,
+    /// and Discord replies will be posted. If true, those events will be logged, but not actually
+    /// performed.
+    dry_run: bool,
 }
 
 impl Handler {
-    pub fn new(rate_limit: Duration, reply_limit: usize) -> Self {
+    pub fn new(rate_limit: Duration, reply_limit: usize, dry_run: bool) -> Self {
         Handler {
             rate_limit,
             reply_limit,
             send_history: Arc::new(Mutex::new(SendHistory::new())),
+            dry_run,
         }
     }
     /// Check whether the bot can proceed with honoring this request,
@@ -231,7 +236,13 @@ impl SendHistory {
 
 #[async_trait]
 impl EventHandler for Handler {
-    #[instrument(skip(self, ctx))]
+    // The `Message` struct is very large, and clutters up debug logging, so we'll
+    // extract specific fields to make spans readable.
+    #[instrument(skip_all, fields(
+            user_name = %message.author.name,
+            user_id = %message.author.id,
+            message_id = %message.id,
+    ))]
     /// Respond to faucet request. For first-time requests, will spend a bit.
     /// If the faucet request duplicates a previous request within the timeout
     /// window, then Galileo will respond instructing the user to wait longer.
@@ -281,7 +292,11 @@ impl EventHandler for Handler {
                 "Please wait for another {} before requesting more tokens. Thanks!",
                 format_remaining_time(last_fulfilled, self.rate_limit)
             );
-            reply(&ctx, &message, response).await;
+            if !self.dry_run {
+                reply(&ctx, &message, response).await;
+            } else {
+                tracing::debug!("dry_run: would reply with rate-limit response",);
+            }
 
             // Setting the notified count to zero "un-rate-limits" an entry, which we do when a
             // request fails, so we don't have to traverse the entire list:
@@ -298,6 +313,11 @@ impl EventHandler for Handler {
             .lock()
             .unwrap()
             .record_request(message_info.user_id, &penumbra_addresses);
+
+        if self.dry_run {
+            tracing::debug!("dry_run: would send tx");
+            return;
+        }
 
         // Send the message to the queue, to be processed asynchronously
         tracing::trace!("sending message to worker queue");
