@@ -60,6 +60,9 @@ pub struct Serve {
     /// Batch size for responding to catch-up backlog.
     #[clap(long, default_value = "25")]
     catch_up_batch_size: usize,
+    /// Disable transaction sending and Discord notifications. Useful for debugging.
+    #[clap(long)]
+    dry_run: bool,
     /// The amounts to send for each response, written as typed values 1.87penumbra, 12cubes, etc.
     values: Vec<Value>,
 }
@@ -144,7 +147,7 @@ impl Serve {
         let (send_requests, responder) = Responder::new(service, self.max_addresses, self.values);
 
         // Create a watcher for Discord messages, which will manage spends and replies.
-        let handler = Handler::new(self.rate_limit, self.reply_limit);
+        let handler = Handler::new(self.rate_limit, self.reply_limit, self.dry_run);
 
         tracing::debug!("configuring discord client");
         // Make a new client using a token set by an environment variable, with our handlers
@@ -214,6 +217,9 @@ impl Serve {
     }
     /// Perform sanity checks on CLI args prior to running.
     async fn preflight_checks(&self) -> anyhow::Result<()> {
+        if self.dry_run {
+            tracing::info!("dry-run mode is enabled, won't send transactions or post messages");
+        }
         if self.values.is_empty() {
             anyhow::bail!("at least one value must be provided");
         } else if self.values.iter().any(|v| v.amount.value().is_zero()) {
