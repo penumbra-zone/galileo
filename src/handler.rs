@@ -48,9 +48,15 @@ impl Handler {
     /// Check whether the bot can proceed with honoring this request,
     /// performing preflight checks on server and channel configuration,
     /// avoiding self-sends, and honoring ratelimits.
-    async fn should_send(&self, ctx: Context, message: Message) -> anyhow::Result<bool> {
+    async fn should_send(&self, ctx: Context, message: Message) -> bool {
         tracing::trace!("parsing message: {:#?}", message);
-        let message_info = MessageInfo::new(message.clone(), ctx.clone())?;
+        let message_info = match MessageInfo::new(message.clone(), ctx.clone()) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::error!(%e, "failed to parse message");
+                return false;
+            }
+        };
         let self_id = ctx.cache.current_user().id;
 
         // Stop if we're not allowed to respond in this channel
@@ -63,10 +69,10 @@ impl Handler {
                     ?message_info.guild_channel,
                     "not allowed to send messages in this channel"
                 );
-                return Ok(false);
+                return false;
             }
         } else {
-            return Ok(false);
+            return false;
         };
 
         // TODO: add check for channel id, bailing out if channel doesn't match
@@ -74,11 +80,11 @@ impl Handler {
         // Don't trigger on messages we ourselves send
         if message_info.user_id == self_id {
             tracing::trace!("detected message from ourselves");
-            return Ok(false);
+            return false;
         }
 
         // If we made it this far, it's OK to send.
-        return Ok(true);
+        return true;
     }
 }
 
@@ -248,7 +254,7 @@ impl EventHandler for Handler {
     /// window, then Galileo will respond instructing the user to wait longer.
     async fn message(&self, ctx: Context, message: Message) {
         // Check whether we should proceed.
-        if let Err(_e) = self.should_send(ctx.clone(), message.clone()).await {
+        if !self.should_send(ctx.clone(), message.clone()).await {
             return;
         }
 
