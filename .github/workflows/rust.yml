@@ -2,9 +2,6 @@ name: Rust CI
 on:
   workflow_call:
   workflow_dispatch:
-  push:
-    branches:
-      - main
   # Run periodically to check for breakage, since we seldom update the galileo repo.
   # This allows us to determine approximately when a breaking change was merged into
   # the penumbra repo, so we can fix it ahead of a testnet release.
@@ -14,20 +11,66 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
-  build:
-    name: Build
-    runs-on: buildjet-16vcpu-ubuntu-2004
+  # Job to look up the most recent tag for a stable testnet, so we can specify
+  # that tag when building.
+  lookup-testnet:
+    name: Look up testnet
+    runs-on: ubuntu-latest
+    outputs:
+      testnet_tag: ${{ steps.testnet_tag.outputs.testnet_tag }}
+    steps:
+      - id: testnet_tag
+        run: >-
+          printf "testnet_tag=%s" "$(curl -sSfL https://api.github.com/repos/penumbra-zone/penumbra/releases/latest | jq -r .tag_name)"
+          >> "$GITHUB_OUTPUT"
+
+  # Let's make sure we can still build against the currently active stable testnet.
+  check-testnet:
+    name: Check Testnet
+    runs-on: buildjet-8vcpu-ubuntu-2004
+    needs: lookup-testnet
     steps:
       - name: Checkout galileo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Check out penumbra repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: penumbra-zone/penumbra
           path: penumbra-repo
           lfs: true
+          ref: ${{needs.lookup-testnet.outputs.testnet_tag}}
+
+      - name: Move penumbra repo to relative path
+        run: mv penumbra-repo ../penumbra
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo check
+        run: cargo check --release
+
+
+  # The "preview" jobs build against upstream main.
+  build-preview:
+    name: Build Preview
+    runs-on: buildjet-16vcpu-ubuntu-2004
+    steps:
+      - name: Checkout galileo
+        uses: actions/checkout@v4
+
+      - name: Check out penumbra repo
+        uses: actions/checkout@v4
+        with:
+          repository: penumbra-zone/penumbra
+          path: penumbra-repo
+          lfs: true
+          ref: main
 
       - name: Move penumbra repo to relative path
         run: mv penumbra-repo ../penumbra
@@ -41,19 +84,20 @@ jobs:
       - name: Run cargo build release
         run: cargo build --release
 
-  check:
-    name: Check
+  check-preview:
+    name: Check Preview
     runs-on: buildjet-8vcpu-ubuntu-2004
     steps:
       - name: Checkout galileo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Check out penumbra repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: penumbra-zone/penumbra
           path: penumbra-repo
           lfs: true
+          ref: main
 
       - name: Move penumbra repo to relative path
         run: mv penumbra-repo ../penumbra
