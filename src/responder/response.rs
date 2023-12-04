@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use penumbra_keys::Address;
 use penumbra_transaction::Id;
-use serenity::{client::Cache, model::id::GuildId, prelude::Mentionable};
+use serenity::{client::Cache, model::id::GuildId};
 
 /// The response from a request to dispense tokens to a set of addresses.
 #[derive(Debug, Clone)]
@@ -56,21 +56,7 @@ impl Response {
     ///
     /// This requires [`Cache`] and a [`GuildId`] so that it can mention the administrator role(s)
     /// of the server if an error occurred.
-    pub async fn summary(&self, cache: impl AsRef<Cache>, guild_id: GuildId) -> String {
-        /// Construct a mention for the admin roles for this server
-        async fn mention_admins(cache: impl AsRef<Cache>, guild_id: GuildId) -> String {
-            cache
-                .as_ref()
-                .guild_roles(guild_id)
-                .iter()
-                .flat_map(IntoIterator::into_iter)
-                .filter(|(_, r)| r.permissions.administrator())
-                .map(|(&id, _)| id)
-                .map(|role_id| role_id.mention().to_string())
-                .collect::<Vec<String>>()
-                .join(" ")
-        }
-
+    pub async fn summary(&self, _cache: impl AsRef<Cache>, _guild_id: GuildId) -> String {
         let mut response = String::new();
 
         if !self.succeeded.is_empty() {
@@ -95,8 +81,7 @@ impl Response {
 
             write!(
                 response,
-                "\n{mention_admins}: you may want to investigate this error :)",
-                mention_admins = mention_admins(cache, guild_id).await,
+                "\nadmins: you may want to investigate this error :)",
             )
             .unwrap();
         }
