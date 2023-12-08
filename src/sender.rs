@@ -73,7 +73,7 @@ where
             planner
                 .memo(MemoPlaintext {
                     text: "Hello from Galileo, the Penumbra faucet bot".to_string(),
-                    sender: self2.fvk.payment_address(0.into()).0,
+                    return_address: self2.fvk.payment_address(0.into()).0,
                 })
                 .unwrap();
             let plan = planner.plan(&mut self2.view, self2.fvk.wallet_id(), self2.account.into());
@@ -84,7 +84,6 @@ where
                 .custody
                 .authorize(AuthorizeRequest {
                     plan: plan.clone(),
-                    wallet_id: Some(self2.fvk.wallet_id()),
                     pre_authorizations: Vec::new(),
                 })
                 .await?
@@ -92,11 +91,9 @@ where
                 .ok_or_else(|| anyhow::anyhow!("no auth data"))?
                 .try_into()?;
             let witness_data = self2.view.witness(self2.fvk.wallet_id(), &plan).await?;
-            let unauth_tx = plan
-                .build_concurrent(OsRng, &self2.fvk, witness_data)
+            let tx = plan
+                .build_concurrent(&self2.fvk, &witness_data, &auth_data)
                 .await?;
-
-            let tx = unauth_tx.authorize(&mut OsRng, &auth_data)?;
 
             // 3. Broadcast the transaction and wait for confirmation.
             let (tx_id, _detection_height) = self2.view.broadcast_transaction(tx, true).await?;
