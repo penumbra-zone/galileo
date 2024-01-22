@@ -1,14 +1,14 @@
 use std::fmt::Write;
 
 use penumbra_keys::Address;
-use penumbra_transaction::Id;
+use penumbra_txhash::TransactionId;
 use serenity::{client::Cache, model::id::GuildId};
 
 /// The response from a request to dispense tokens to a set of addresses.
 #[derive(Debug, Clone)]
 pub struct Response {
     /// The addresses that were successfully dispensed tokens.
-    pub(super) succeeded: Vec<(Address, Id)>,
+    pub(super) succeeded: Vec<(Address, TransactionId)>,
     /// The addresses that failed to be dispensed tokens, accompanied by a string describing the
     /// error.
     pub(super) failed: Vec<(Address, String)>,
@@ -21,7 +21,7 @@ pub struct Response {
 
 impl Response {
     /// Returns the addresses that were successfully dispensed tokens.
-    pub fn succeeded(&self) -> &[(Address, Id)] {
+    pub fn succeeded(&self) -> &[(Address, TransactionId)] {
         &self.succeeded
     }
 
@@ -64,7 +64,7 @@ impl Response {
             for (addr, id) in self.succeeded.iter() {
                 write!(
                     response,
-                    "\n`{}`\ntry `pcli v tx {}`\nor visit https://app.testnet.penumbra.zone/tx/{}",
+                    "\n`{}`\ntry `pcli v tx {}`\nor visit https://app.testnet.penumbra.zone/#/tx/{}",
                     addr.display_short_form(),
                     id,
                     id,

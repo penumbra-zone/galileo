@@ -4,7 +4,7 @@ use futures_util::StreamExt as _;
 use penumbra_asset::Value;
 use penumbra_custody::CustodyClient;
 use penumbra_keys::Address;
-use penumbra_transaction::Id;
+use penumbra_txhash::TransactionId;
 use penumbra_view::ViewClient;
 use serenity::prelude::TypeMapKey;
 use tokio::sync::mpsc;
@@ -136,7 +136,7 @@ where
     C: CustodyClient + Clone + Send + 'static,
 {
     // Track addresses to which we successfully dispensed tokens
-    let mut succeeded = Vec::<(Address, Id)>::new();
+    let mut succeeded = Vec::<(Address, TransactionId)>::new();
 
     // Track addresses (and associated errors) which we tried to send tokens to, but failed
     let mut failed = Vec::<(Address, String)>::new();
