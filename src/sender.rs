@@ -5,10 +5,15 @@ use std::{
 
 use futures::{Future, FutureExt};
 use futures_util::Stream;
+use futures_util::TryStreamExt;
+
+use penumbra_proto::view::v1::broadcast_transaction_response::Status as BroadcastStatus;
+
 use penumbra_asset::Value;
 use penumbra_custody::{AuthorizeRequest, CustodyClient};
 use penumbra_keys::{Address, FullViewingKey};
 use penumbra_transaction::memo::MemoPlaintext;
+use penumbra_txhash::TransactionId;
 use penumbra_view::ViewClient;
 use penumbra_wallet::plan::Planner;
 use pin_project_lite::pin_project;
@@ -51,7 +56,7 @@ where
     V: ViewClient + Clone + Send + 'static,
     C: CustodyClient + Clone + Send + 'static,
 {
-    type Response = penumbra_transaction::Id;
+    type Response = TransactionId;
     type Error = anyhow::Error;
     type Future =
         Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
@@ -71,13 +76,15 @@ where
                 planner.output(value, address);
             }
             planner
-                .memo(MemoPlaintext {
-                    text: "Hello from Galileo, the Penumbra faucet bot".to_string(),
-                    return_address: self2.fvk.payment_address(0.into()).0,
-                })
+                .memo(
+                    MemoPlaintext::new(
+                        self2.fvk.payment_address(0.into()).0,
+                        "Hello from Galileo, the Penumbra faucet bot".to_string(),
+                    )
+                    .expect("can create memo"),
+                )
                 .unwrap();
-            let plan = planner.plan(&mut self2.view, self2.fvk.wallet_id(), self2.account.into());
-            let plan = plan.await?;
+            let plan = planner.plan(&mut self2.view, self2.account.into()).await?;
 
             // 2. Authorize and build the transaction.
             let auth_data = self2
@@ -90,14 +97,32 @@ where
                 .data
                 .ok_or_else(|| anyhow::anyhow!("no auth data"))?
                 .try_into()?;
-            let witness_data = self2.view.witness(self2.fvk.wallet_id(), &plan).await?;
+            let witness_data = self2.view.witness(&plan).await?;
             let tx = plan
                 .build_concurrent(&self2.fvk, &witness_data, &auth_data)
                 .await?;
 
             // 3. Broadcast the transaction and wait for confirmation.
-            let (tx_id, _detection_height) = self2.view.broadcast_transaction(tx, true).await?;
-            Ok(tx_id)
+            let id = tx.id();
+            let mut rsp = self2.view.broadcast_transaction(tx, true).await?;
+            while let Some(rsp) = rsp.try_next().await? {
+                match rsp.status {
+                    Some(BroadcastStatus::BroadcastSuccess(_)) => {
+                        println!("transaction broadcast successfully: {}", id);
+                    }
+                    Some(BroadcastStatus::Confirmed(c)) => {
+                        println!(
+                            "transaction confirmed and detected: {} @ height {}",
+                            id, c.detection_height
+                        );
+                        return Ok(id);
+                    }
+                    _ => {}
+                }
+            }
+            Err(anyhow::anyhow!(
+                "view server closed stream without reporting transaction confirmation"
+            ))
         }
         .boxed()
     }
@@ -128,7 +153,7 @@ impl<S> SenderSet<S> {
 
 impl<S> Stream for SenderSet<S>
 where
-    S: Service<(Address, Vec<Value>), Response = penumbra_transaction::Id, Error = anyhow::Error>,
+    S: Service<(Address, Vec<Value>), Response = TransactionId, Error = anyhow::Error>,
 {
     type Item = Result<Change<Key, S>, anyhow::Error>;
 

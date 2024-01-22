@@ -7,16 +7,12 @@ use num_traits::identities::Zero;
 use penumbra_asset::Value;
 use penumbra_custody::soft_kms::SoftKms;
 use penumbra_proto::{
-    custody::v1alpha1::{
-        custody_protocol_service_client::CustodyProtocolServiceClient,
-        custody_protocol_service_server::CustodyProtocolServiceServer,
+    custody::v1::{
+        custody_service_client::CustodyServiceClient, custody_service_server::CustodyServiceServer,
     },
-    view::v1alpha1::{
-        view_protocol_service_client::ViewProtocolServiceClient,
-        view_protocol_service_server::ViewProtocolServiceServer,
-    },
+    view::v1::{view_service_client::ViewServiceClient, view_service_server::ViewServiceServer},
 };
-use penumbra_view::{ViewClient, ViewService};
+use penumbra_view::{ViewClient, ViewServer};
 use serenity::prelude::GatewayIntents;
 use std::{env, path::PathBuf, time::Duration};
 use tokio::sync::mpsc;
@@ -91,8 +87,7 @@ impl Serve {
         let wallet = Wallet::load(pcli_config_file)
             .context("failed to load wallet from local custody file")?;
         let soft_kms = SoftKms::new(wallet.spend_key.clone().into());
-        let custody =
-            CustodyProtocolServiceClient::new(CustodyProtocolServiceServer::new(soft_kms));
+        let custody = CustodyServiceClient::new(CustodyServiceServer::new(soft_kms));
         let fvk = wallet.spend_key.full_viewing_key().clone();
 
         // Initialize view client, to scan Penumbra chain.
@@ -107,16 +102,16 @@ impl Serve {
         let view_storage =
             penumbra_view::Storage::load_or_initialize(view_filepath, &fvk, self.node.clone())
                 .await?;
-        let view_service = ViewService::new(view_storage, self.node.clone()).await?;
+        let view_service = ViewServer::new(view_storage, self.node.clone()).await?;
 
         // Now build the view and custody clients, doing gRPC with ourselves
-        let mut view = ViewProtocolServiceClient::new(ViewProtocolServiceServer::new(view_service));
+        let mut view = ViewServiceClient::new(ViewServiceServer::new(view_service));
 
         // Wait to synchronize the chain before doing anything else.
         tracing::info!(
             "starting initial sync: please wait for sync to complete before requesting tokens"
         );
-        ViewClient::status_stream(&mut view, fvk.wallet_id())
+        ViewClient::status_stream(&mut view)
             .await?
             .try_collect::<Vec<_>>()
             .await?;
