@@ -27,6 +27,7 @@ penumbra-txhash = { path = "../penumbra/crates/core/txhash" }
 # External dependencies
 tower = { version = "0.4", features = ["balance"] }
 tower-service = { version = "0.3.1" }
+tower-batch = "0.1"
 anyhow = "1"
 futures-util = { version = "0.3", default-features = false, features = [
     "alloc",

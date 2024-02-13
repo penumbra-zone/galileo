@@ -13,6 +13,7 @@ use tower::buffer::Buffer;
 use tower::limit::ConcurrencyLimit;
 use tower::load::PendingRequestsDiscover;
 use tower::ServiceExt;
+use tower_batch::Batch;
 
 use crate::sender::SenderSet;
 use crate::Sender;
@@ -23,6 +24,13 @@ pub use request::Request;
 
 mod response;
 pub use response::Response;
+
+type Senders<V, C> = ConcurrencyLimit<
+    Balance<
+        PendingRequestsDiscover<SenderSet<Batch<Sender<V, C>, (Address, Vec<Value>)>>>,
+        (Address, Vec<Value>),
+    >,
+>;
 
 /// Worker transforming lists of addresses to responses describing whether they were successfully
 /// dispensed tokens.
@@ -38,15 +46,7 @@ where
     /// Values to send each time.
     values: Vec<Value>,
     /// The transaction senders.
-    senders: Buffer<
-        ConcurrencyLimit<
-            Balance<
-                PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
-                (Address, Vec<Value>),
-            >,
-        >,
-        (Address, Vec<Value>),
-    >,
+    senders: Buffer<Senders<V, C>, (Address, Vec<Value>)>,
 }
 
 /// `TypeMap` key for the address queue (so that `serenity` worker can send to it).
@@ -64,12 +64,7 @@ where
 {
     /// Create a new responder.
     pub fn new(
-        senders: ConcurrencyLimit<
-            Balance<
-                PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
-                (Address, Vec<Value>),
-            >,
-        >,
+        senders: Senders<V, C>,
         max_addresses: usize,
         values: Vec<Value>,
     ) -> (mpsc::Sender<Request>, Self) {
@@ -121,15 +116,7 @@ async fn dispense<V, C>(
     mut addresses: Vec<AddressOrAlmost>,
     max_addresses: usize,
     values: Vec<Value>,
-    senders: Buffer<
-        ConcurrencyLimit<
-            Balance<
-                PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
-                (Address, Vec<Value>),
-            >,
-        >,
-        (Address, Vec<Value>),
-    >,
+    senders: Buffer<Senders<V, C>, (Address, Vec<Value>)>,
 ) -> anyhow::Result<Response>
 where
     V: ViewClient + Clone + Send + 'static,

@@ -84,7 +84,7 @@ impl Handler {
         }
 
         // If we made it this far, it's OK to send.
-        return true;
+        true
     }
 }
 

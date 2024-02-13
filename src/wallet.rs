@@ -2,7 +2,6 @@ use anyhow::Context;
 use penumbra_keys::keys::SpendKey;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
-use toml;
 
 /// A wallet file storing a single spend authority.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,6 +1,8 @@
 use std::{
     pin::Pin,
+    sync::{Arc, Mutex},
     task::{Context as TaskContext, Poll},
+    time::Duration,
 };
 
 use futures::{Future, FutureExt};
@@ -18,7 +20,9 @@ use penumbra_view::ViewClient;
 use penumbra_wallet::plan::Planner;
 use pin_project_lite::pin_project;
 use rand::rngs::OsRng;
-use tower::{discover::Change, limit::ConcurrencyLimit};
+use tokio::sync::broadcast;
+use tower::discover::Change;
+use tower_batch::{Batch, BatchControl};
 use tower_service::Service;
 
 /// The `Sender` maps `(Address, Vec<Value>)` send requests to `[u8; 32]` transaction hashes of sent funds.
@@ -32,6 +36,11 @@ where
     custody: C,
     fvk: FullViewingKey,
     account: u32,
+    // Accumulate a batch of transactions to perform
+    #[allow(clippy::type_complexity)]
+    batch: Arc<Mutex<Vec<(Address, Vec<Value>)>>>,
+    // Broadcast the transaction hash to everyone who requested in the batch
+    result: broadcast::Sender<TransactionId>,
 }
 
 impl<V, C> Sender<V, C>
@@ -39,19 +48,28 @@ where
     V: ViewClient + Clone + Send + 'static,
     C: CustodyClient + Clone + Send + 'static,
 {
-    pub fn new(account: u32, fvk: FullViewingKey, view: V, custody: C) -> ConcurrencyLimit<Self> {
-        tower::ServiceBuilder::new()
-            .concurrency_limit(1)
-            .service(Self {
+    pub fn new(
+        account: u32,
+        fvk: FullViewingKey,
+        view: V,
+        custody: C,
+    ) -> Batch<Self, (Address, Vec<Value>)> {
+        Batch::new(
+            tower::ServiceBuilder::new().service(Self {
                 view,
                 custody,
                 fvk,
                 account,
-            })
+                batch: Arc::new(Mutex::new(Vec::new())),
+                result: broadcast::channel(1).0,
+            }),
+            25,
+            Duration::from_secs(5),
+        )
     }
 }
 
-impl<V, C> tower::Service<(Address, Vec<Value>)> for Sender<V, C>
+impl<V, C> tower::Service<BatchControl<(Address, Vec<Value>)>> for Sender<V, C>
 where
     V: ViewClient + Clone + Send + 'static,
     C: CustodyClient + Clone + Send + 'static,
@@ -61,68 +79,80 @@ where
     type Future =
         Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
 
-    fn call(&mut self, req: (Address, Vec<Value>)) -> Self::Future {
+    fn call(&mut self, req: BatchControl<(Address, Vec<Value>)>) -> Self::Future {
         let mut self2 = self.clone();
         async move {
-            // 1. plan the transaction.
-            let (address, values) = req;
-            if values.is_empty() {
-                return Err(anyhow::anyhow!(
-                    "tried to send empty list of values to address"
-                ));
-            }
-            let mut planner = Planner::new(OsRng);
-            for value in values {
-                planner.output(value, address);
-            }
-            planner
-                .memo(
-                    MemoPlaintext::new(
-                        self2.fvk.payment_address(0.into()).0,
-                        "Hello from Galileo, the Penumbra faucet bot".to_string(),
-                    )
-                    .expect("can create memo"),
-                )
-                .unwrap();
-            let plan = planner.plan(&mut self2.view, self2.account.into()).await?;
+            if let BatchControl::Item((address, values)) = req {
+                self2.batch.lock().unwrap().push((address, values));
+                Ok(self2.result.subscribe().recv().await?)
+            } else {
+                // Process the batch when the control is `Flush`.
+                let requests = std::mem::take(&mut *self2.batch.lock().unwrap());
 
-            // 2. Authorize and build the transaction.
-            let auth_data = self2
-                .custody
-                .authorize(AuthorizeRequest {
-                    plan: plan.clone(),
-                    pre_authorizations: Vec::new(),
-                })
-                .await?
-                .data
-                .ok_or_else(|| anyhow::anyhow!("no auth data"))?
-                .try_into()?;
-            let witness_data = self2.view.witness(&plan).await?;
-            let tx = plan
-                .build_concurrent(&self2.fvk, &witness_data, &auth_data)
-                .await?;
-
-            // 3. Broadcast the transaction and wait for confirmation.
-            let id = tx.id();
-            let mut rsp = self2.view.broadcast_transaction(tx, true).await?;
-            while let Some(rsp) = rsp.try_next().await? {
-                match rsp.status {
-                    Some(BroadcastStatus::BroadcastSuccess(_)) => {
-                        println!("transaction broadcast successfully: {}", id);
-                    }
-                    Some(BroadcastStatus::Confirmed(c)) => {
-                        println!(
-                            "transaction confirmed and detected: {} @ height {}",
-                            id, c.detection_height
-                        );
-                        return Ok(id);
-                    }
-                    _ => {}
+                // 1. plan the transaction.
+                if requests.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "tried to send empty list of values to address"
+                    ));
                 }
+
+                let mut planner = Planner::new(OsRng);
+                for (address, values) in requests {
+                    for value in values {
+                        planner.output(value, address);
+                    }
+                }
+                planner
+                    .memo(
+                        MemoPlaintext::new(
+                            self2.fvk.payment_address(0.into()).0,
+                            "Hello from Galileo, the Penumbra faucet bot".to_string(),
+                        )
+                        .expect("can create memo"),
+                    )
+                    .unwrap();
+                let plan = planner.plan(&mut self2.view, self2.account.into()).await?;
+
+                // 2. Authorize and build the transaction.
+                let auth_data = self2
+                    .custody
+                    .authorize(AuthorizeRequest {
+                        plan: plan.clone(),
+                        pre_authorizations: Vec::new(),
+                    })
+                    .await?
+                    .data
+                    .ok_or_else(|| anyhow::anyhow!("no auth data"))?
+                    .try_into()?;
+                let witness_data = self2.view.witness(&plan).await?;
+                let tx = plan
+                    .build_concurrent(&self2.fvk, &witness_data, &auth_data)
+                    .await?;
+
+                // 3. Broadcast the transaction and wait for confirmation.
+                let id = tx.id();
+                let mut rsp = self2.view.broadcast_transaction(tx, true).await?;
+                while let Some(rsp) = rsp.try_next().await? {
+                    match rsp.status {
+                        Some(BroadcastStatus::BroadcastSuccess(_)) => {
+                            println!("transaction broadcast successfully: {}", id);
+                        }
+                        Some(BroadcastStatus::Confirmed(c)) => {
+                            println!(
+                                "transaction confirmed and detected: {} @ height {}",
+                                id, c.detection_height
+                            );
+                            let _ = self2.result.send(id);
+                            return Ok(self2.result.subscribe().recv().await?);
+                        }
+                        _ => {}
+                    }
+                }
+
+                Err(anyhow::anyhow!(
+                    "view server closed stream without reporting transaction confirmation"
+                ))
             }
-            Err(anyhow::anyhow!(
-                "view server closed stream without reporting transaction confirmation"
-            ))
         }
         .boxed()
     }
@@ -153,9 +183,9 @@ impl<S> SenderSet<S> {
 
 impl<S> Stream for SenderSet<S>
 where
-    S: Service<(Address, Vec<Value>), Response = TransactionId, Error = anyhow::Error>,
+    S: Service<(Address, Vec<Value>), Response = TransactionId>,
 {
-    type Item = Result<Change<Key, S>, anyhow::Error>;
+    type Item = Result<Change<Key, S>, S::Error>;
 
     fn poll_next(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         match self.project().services.pop() {
