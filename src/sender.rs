@@ -63,8 +63,8 @@ where
                 batch: Arc::new(Mutex::new(Vec::new())),
                 result: broadcast::channel(1).0,
             }),
-            25,
-            Duration::from_secs(5),
+            25, // maximum batch size (will be broken up into multiple transactions if size is exceeded)
+            Duration::from_secs(10), // maximum wait time for a batch to be filled (will be sent before filling max batch size if time is exceeded)
         )
     }
 }
