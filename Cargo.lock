@@ -765,9 +765,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.35"
+version = "0.4.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eaf5903dcbc0a39312feb77df2ff4c76387d591b9fc7b04a238dcf8bb62639a"
+checksum = "8a0d04d43504c61aa6c7531f1871dd0d418d91130162063b789da00fd7057a5e"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "cnidarium"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "cnidarium-component"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "decaf377-fmd"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "ark-ff",
  "ark-serialize",
@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "decaf377-frost"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -1184,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "decaf377-ka"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "ark-ff",
  "decaf377 0.5.0",
@@ -3149,7 +3149,7 @@ checksum = "36bae92c60fa2398ce4678b98b2c4b5a7c61099961ca1fa305aec04a9ad28922"
 
 [[package]]
 name = "penumbra-app"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3222,7 +3222,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-asset"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3259,7 +3259,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-community-pool"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3290,7 +3290,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-compact-block"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3326,7 +3326,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-custody"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3342,8 +3342,10 @@ dependencies = [
  "ed25519-consensus",
  "futures",
  "hex",
+ "penumbra-governance",
  "penumbra-keys",
  "penumbra-proto",
+ "penumbra-stake",
  "penumbra-transaction",
  "penumbra-txhash",
  "prost",
@@ -3358,7 +3360,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-dex"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3413,7 +3415,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-distributions"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3430,7 +3432,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-fee"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3455,7 +3457,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-funding"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3477,7 +3479,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-genesis"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "penumbra-community-pool",
@@ -3496,7 +3498,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-governance"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3551,7 +3553,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-ibc"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3585,7 +3587,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-keys"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "aes",
  "anyhow",
@@ -3628,7 +3630,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-num"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3663,7 +3665,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-proof-params"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ec",
@@ -3692,7 +3694,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-proto"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3722,7 +3724,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-sct"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3755,7 +3757,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-shielded-pool"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3804,7 +3806,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-stake"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3854,7 +3856,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-tct"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "ark-ed-on-bls12-377",
  "ark-ff",
@@ -3881,7 +3883,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-tendermint-proxy"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3912,7 +3914,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-tower-trace"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "futures",
  "hex",
@@ -3933,7 +3935,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-transaction"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-ff",
@@ -3983,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-txhash"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "blake2b_simd 1.0.2",
@@ -3995,7 +3997,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-view"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-std",
@@ -4050,7 +4052,7 @@ dependencies = [
 
 [[package]]
 name = "penumbra-wallet"
-version = "0.70.0"
+version = "0.70.1"
 dependencies = [
  "anyhow",
  "ark-std",
@@ -6568,9 +6570,9 @@ dependencies = [
 
 [[package]]
 name = "zstd-sys"
-version = "2.0.9+zstd.1.5.5"
+version = "2.0.10+zstd.1.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e16efa8a874a0481a574084d34cc26fdb3b99627480f785888deb6386506656"
+checksum = "c253a4914af5bafc8fa8c86ee400827e83cf6ec01195ec1f1ed8441bf00d65aa"
 dependencies = [
  "cc",
  "pkg-config",
