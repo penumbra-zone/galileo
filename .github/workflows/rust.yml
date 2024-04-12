@@ -116,7 +116,7 @@ jobs:
     runs-on: buildjet-8vcpu-ubuntu-2004
     steps:
       - name: Checkout galileo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # N.B. `cargo fmt` does not require relpath dependencies to be present,
       # so we don't need to clone the penumbra repo here.
