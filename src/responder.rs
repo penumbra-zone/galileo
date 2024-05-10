@@ -161,9 +161,9 @@ where
                     tracing::info!("processing send request, waiting for readiness");
                 });
 
-                let req = (*addr, values.clone());
+                let req = (*addr.clone(), values.clone());
                 reqs.push(req);
-                sent_addresses.push(*addr);
+                sent_addresses.push(addr.clone());
 
                 span.in_scope(|| {
                     tracing::info!("submitted send request");
@@ -185,7 +185,7 @@ where
     // Run the tasks concurrently.
     let mut i = 0;
     while let Some(result) = responses.next().await {
-        let addr = sent_addresses[i];
+        let addr = &sent_addresses[i];
         match result {
             Ok(id) => {
                 // Reply to the originating message with the address
@@ -193,13 +193,13 @@ where
                 span.in_scope(|| {
                     tracing::info!(id = %id, "send request succeeded");
                 });
-                succeeded.push((addr, id));
+                succeeded.push((*addr.clone(), id));
             }
             // By default, anyhow::Error's Display impl only prints the outermost error;
             // using the alternate formate specifier prints the entire chain of causes.
             Err(e) => {
                 tracing::error!(?addr, ?e, "Failed to send funds");
-                failed.push((addr, format!("{:#}", e)))
+                failed.push((*addr.clone(), format!("{:#}", e)))
             }
         }
 

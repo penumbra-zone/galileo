@@ -12,7 +12,6 @@ use penumbra_proto::view::v1::broadcast_transaction_response::Status as Broadcas
 use penumbra_asset::Value;
 use penumbra_custody::{AuthorizeRequest, CustodyClient};
 use penumbra_keys::{Address, FullViewingKey};
-use penumbra_transaction::memo::MemoPlaintext;
 use penumbra_txhash::TransactionId;
 use penumbra_view::ViewClient;
 use penumbra_wallet::plan::Planner;
@@ -73,17 +72,9 @@ where
             }
             let mut planner = Planner::new(OsRng);
             for value in values {
-                planner.output(value, address);
+                planner.output(value, address.clone());
             }
-            planner
-                .memo(
-                    MemoPlaintext::new(
-                        self2.fvk.payment_address(0.into()).0,
-                        "Hello from Galileo, the Penumbra faucet bot".to_string(),
-                    )
-                    .expect("can create memo"),
-                )
-                .unwrap();
+            planner.memo("Hello from Galileo, the Penumbra faucet bot".to_string());
             let plan = planner.plan(&mut self2.view, self2.account.into()).await?;
 
             // 2. Authorize and build the transaction.
