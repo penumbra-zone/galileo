@@ -30,25 +30,27 @@
           # Important environment variables so that the build can find the necessary libraries
           PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig";
           LIBCLANG_PATH="${pkgs.libclang.lib}/lib";
+          ROCKSDB_LIB_DIR="${pkgs.rocksdb.out}/lib";
         in with pkgs; with pkgs.lib; let
 	galileo = (craneLib.buildPackage {
-            inherit src system PKG_CONFIG_PATH LIBCLANG_PATH;
+            inherit src system PKG_CONFIG_PATH LIBCLANG_PATH ROCKSDB_LIB_DIR;
             pname = "galileo";
             version = "0.1.0";
             nativeBuildInputs = [ pkg-config ];
-            buildInputs = [ clang openssl ];
+            buildInputs = [ clang openssl rocksdb ];
 	    # A lockfile is not used in this repository.
             cargoVendorDir = null;
         }).overrideAttrs (_: { doCheck = false; }); # Disable tests to improve build times
 	in {
 	  inherit galileo;
 	  devShells.default = craneLib.devShell {
-            inherit LIBCLANG_PATH;
+            inherit LIBCLANG_PATH ROCKSDB_LIB_DIR;
             inputsFrom = [ galileo ];
-            packages = [ cargo-watch cargo-nextest ];
+            packages = [ cargo-watch cargo-nextest rocksdb ];
             shellHook = ''
               export LIBCLANG_PATH=${LIBCLANG_PATH}
               export RUST_SRC_PATH=${pkgs.rustPlatform.rustLibSrc} # Required for rust-analyzer
+              export ROCKSDB_LIB_DIR=${ROCKSDB_LIB_DIR}
             '';
 	  };
 	}
