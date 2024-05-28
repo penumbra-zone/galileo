@@ -11,6 +11,7 @@ use serenity::{
     model::{
         channel::{GuildChannel, Message},
         id::{GuildId, UserId},
+        user::User,
     },
 };
 use tokio::time::{Duration, Instant};
@@ -50,7 +51,7 @@ impl Handler {
     /// avoiding self-sends, and honoring ratelimits.
     async fn should_send(&self, ctx: Context, message: Message) -> bool {
         tracing::trace!("parsing message: {:#?}", message);
-        let message_info = match MessageInfo::new(message.clone(), ctx.clone()) {
+        let message_info = match MessageInfo::new(&message, &ctx) {
             Ok(m) => m,
             Err(e) => {
                 tracing::error!(%e, "failed to parse message");
@@ -103,10 +104,18 @@ pub struct MessageInfo {
 }
 
 impl MessageInfo {
-    pub fn new(message: Message, ctx: Context) -> anyhow::Result<MessageInfo> {
+    pub fn new(
+        message @ Message {
+            author: User { id, name, .. },
+            channel_id,
+            guild_id,
+            ..
+        }: &Message,
+        ctx: &Context,
+    ) -> anyhow::Result<MessageInfo> {
         // Get the guild id of this message. In Discord nomenclature,
         // a "guild" is the overarching server that contains channels.
-        let guild_id = match message.guild_id {
+        let guild_id = match guild_id {
             Some(guild_id) => guild_id,
             None => {
                 // Assuming Galileo is targeting the Penumbra Labs Discord server,
@@ -117,7 +126,7 @@ impl MessageInfo {
         };
 
         // Get the channel of this message.
-        let guild_channel = match ctx.cache.guild_channel(message.channel_id) {
+        let guild_channel = match ctx.cache.guild_channel(channel_id) {
             Some(guild_channel) => guild_channel,
             None => {
                 // As above, assuming Galileo is targeting the Penumbra Labs Discord server,
@@ -127,12 +136,10 @@ impl MessageInfo {
             }
         };
 
-        let user_id = message.author.id;
-        let user_name = message.author.name.clone();
         Ok(MessageInfo {
-            user_id,
-            user_name,
-            guild_id,
+            user_id: *id,
+            user_name: name.clone(),
+            guild_id: *guild_id,
             guild_channel,
         })
     }
@@ -258,7 +265,7 @@ impl EventHandler for Handler {
             return;
         }
 
-        let message_info = MessageInfo::new(message.clone(), ctx.clone()).unwrap();
+        let message_info = MessageInfo::new(&message, &ctx).unwrap();
 
         // Prune the send history of all expired rate limit timeouts
         self.send_history.lock().unwrap().prune(self.rate_limit);
