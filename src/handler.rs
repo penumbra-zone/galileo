@@ -94,6 +94,7 @@ impl Handler {
 /// Representation of a Discord message, containing only the fields
 /// relevant for processing a faucet request.
 // TODO: consider using `serenity::model::channel::Message` instead.
+#[derive(Debug)]
 pub struct MessageInfo {
     /// Discord user ID of the sender of the message.
     pub user_id: UserId,
