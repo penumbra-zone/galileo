@@ -270,7 +270,7 @@ impl EventHandler for Handler {
         self.send_history.lock().unwrap().prune(self.rate_limit);
 
         // Check if the message contains a penumbra address and create a request for it if so
-        let (response, request) = if let Some(parsed) = { Request::try_new(&message) } {
+        let (response, request) = if let Some(parsed) = Request::try_new(&message) {
             parsed
         } else {
             tracing::trace!("no addresses found in message");
