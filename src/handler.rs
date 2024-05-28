@@ -51,25 +51,22 @@ impl Handler {
     /// Check whether the bot can proceed with honoring this request,
     /// performing preflight checks on server and channel configuration,
     /// avoiding self-sends, and honoring ratelimits.
-    async fn should_send(&self, ctx: Context, message: Message) -> bool {
-        tracing::trace!("parsing message: {:#?}", message);
-        let message_info = match MessageInfo::new(&message, &ctx) {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::error!(%e, "failed to parse message");
-                return false;
-            }
-        };
+    async fn should_send(
+        &self,
+        ctx: &Context,
+        MessageInfo {
+            user_id,
+            guild_channel,
+            ..
+        }: &MessageInfo,
+    ) -> bool {
         let self_id = ctx.cache.current_user().id;
 
         // Stop if we're not allowed to respond in this channel
-        if let Ok(self_permissions) = message_info
-            .guild_channel
-            .permissions_for_user(&ctx, self_id)
-        {
+        if let Ok(self_permissions) = guild_channel.permissions_for_user(&ctx, self_id) {
             if !self_permissions.send_messages() {
                 tracing::debug!(
-                    ?message_info.guild_channel,
+                    ?guild_channel,
                     "not allowed to send messages in this channel"
                 );
                 return false;
@@ -81,7 +78,7 @@ impl Handler {
         // TODO: add check for channel id, bailing out if channel doesn't match
 
         // Don't trigger on messages we ourselves send
-        if message_info.user_id == self_id {
+        if *user_id == self_id {
             tracing::trace!("detected message from ourselves");
             return false;
         }
@@ -264,11 +261,10 @@ impl EventHandler for Handler {
     /// window, then Galileo will respond instructing the user to wait longer.
     async fn message(&self, ctx: Context, message: Message) {
         // Check whether we should proceed.
-        if !self.should_send(ctx.clone(), message.clone()).await {
+        let message_info = MessageInfo::new(&message, &ctx).unwrap();
+        if !self.should_send(&ctx, &message_info).await {
             return;
         }
-
-        let message_info = MessageInfo::new(&message, &ctx).unwrap();
 
         // Prune the send history of all expired rate limit timeouts
         self.send_history.lock().unwrap().prune(self.rate_limit);
