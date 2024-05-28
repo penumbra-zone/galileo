@@ -104,7 +104,7 @@ pub struct MessageInfo {
 }
 
 impl MessageInfo {
-    pub fn new(
+    fn new(
         message @ Message {
             author: User { id, name, .. },
             channel_id,
@@ -151,7 +151,7 @@ struct SendHistory {
 }
 
 impl SendHistory {
-    pub fn new() -> Self {
+    fn new() -> Self {
         SendHistory {
             discord_users: VecDeque::new(),
             penumbra_addresses: VecDeque::new(),
@@ -160,7 +160,7 @@ impl SendHistory {
 
     /// Returns whether the given user is rate limited, and if so, when the rate limit will expire along with
     /// the number of times the user has been notified of the rate limit.
-    pub fn is_rate_limited(
+    fn is_rate_limited(
         &mut self,
         user_id: UserId,
         addresses: &[AddressOrAlmost],
@@ -191,7 +191,7 @@ impl SendHistory {
             })
     }
 
-    pub fn record_request(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
+    fn record_request(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
         self.discord_users.push_back((user_id, Instant::now(), 1));
         self.penumbra_addresses
             .extend(addresses.iter().map(|address_or_almost| {
@@ -203,7 +203,7 @@ impl SendHistory {
             }));
     }
 
-    pub fn prune(&mut self, rate_limit: Duration) {
+    fn prune(&mut self, rate_limit: Duration) {
         tracing::trace!("pruning discord user send history");
         while let Some((user, last_fulfilled, _)) = self.discord_users.front() {
             if last_fulfilled.elapsed() >= rate_limit {
@@ -227,7 +227,7 @@ impl SendHistory {
         tracing::trace!("finished pruning penumbra address send history");
     }
 
-    pub fn record_failure(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
+    fn record_failure(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
         // If the request failed, we set the notification count to zero, so that the rate
         // limit will not apply to future requests
         if let Some((_, _, notified)) = self
