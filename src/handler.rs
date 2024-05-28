@@ -38,6 +38,7 @@ pub struct Handler {
 }
 
 impl Handler {
+    /// Constructs a new [`Handler`].
     pub fn new(rate_limit: Duration, reply_limit: usize, dry_run: bool) -> Self {
         Handler {
             rate_limit,
@@ -46,6 +47,7 @@ impl Handler {
             dry_run,
         }
     }
+
     /// Check whether the bot can proceed with honoring this request,
     /// performing preflight checks on server and channel configuration,
     /// avoiding self-sends, and honoring ratelimits.
