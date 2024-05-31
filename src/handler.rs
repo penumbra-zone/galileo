@@ -11,6 +11,7 @@ use serenity::{
     model::{
         channel::{GuildChannel, Message},
         id::{GuildId, UserId},
+        user::User,
     },
 };
 use tokio::time::{Duration, Instant};
@@ -37,6 +38,7 @@ pub struct Handler {
 }
 
 impl Handler {
+    /// Constructs a new [`Handler`].
     pub fn new(rate_limit: Duration, reply_limit: usize, dry_run: bool) -> Self {
         Handler {
             rate_limit,
@@ -45,28 +47,26 @@ impl Handler {
             dry_run,
         }
     }
+
     /// Check whether the bot can proceed with honoring this request,
     /// performing preflight checks on server and channel configuration,
     /// avoiding self-sends, and honoring ratelimits.
-    async fn should_send(&self, ctx: Context, message: Message) -> bool {
-        tracing::trace!("parsing message: {:#?}", message);
-        let message_info = match MessageInfo::new(message.clone(), ctx.clone()) {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::error!(%e, "failed to parse message");
-                return false;
-            }
-        };
+    async fn should_send(
+        &self,
+        ctx: &Context,
+        MessageInfo {
+            user_id,
+            guild_channel,
+            ..
+        }: &MessageInfo,
+    ) -> bool {
         let self_id = ctx.cache.current_user().id;
 
         // Stop if we're not allowed to respond in this channel
-        if let Ok(self_permissions) = message_info
-            .guild_channel
-            .permissions_for_user(&ctx, self_id)
-        {
+        if let Ok(self_permissions) = guild_channel.permissions_for_user(&ctx, self_id) {
             if !self_permissions.send_messages() {
                 tracing::debug!(
-                    ?message_info.guild_channel,
+                    ?guild_channel,
                     "not allowed to send messages in this channel"
                 );
                 return false;
@@ -78,7 +78,7 @@ impl Handler {
         // TODO: add check for channel id, bailing out if channel doesn't match
 
         // Don't trigger on messages we ourselves send
-        if message_info.user_id == self_id {
+        if *user_id == self_id {
             tracing::trace!("detected message from ourselves");
             return false;
         }
@@ -91,6 +91,7 @@ impl Handler {
 /// Representation of a Discord message, containing only the fields
 /// relevant for processing a faucet request.
 // TODO: consider using `serenity::model::channel::Message` instead.
+#[derive(Debug)]
 pub struct MessageInfo {
     /// Discord user ID of the sender of the message.
     pub user_id: UserId,
@@ -103,10 +104,18 @@ pub struct MessageInfo {
 }
 
 impl MessageInfo {
-    pub fn new(message: Message, ctx: Context) -> anyhow::Result<MessageInfo> {
+    fn new(
+        message @ Message {
+            author: User { id, name, .. },
+            channel_id,
+            guild_id,
+            ..
+        }: &Message,
+        ctx: &Context,
+    ) -> anyhow::Result<MessageInfo> {
         // Get the guild id of this message. In Discord nomenclature,
         // a "guild" is the overarching server that contains channels.
-        let guild_id = match message.guild_id {
+        let guild_id = match guild_id {
             Some(guild_id) => guild_id,
             None => {
                 // Assuming Galileo is targeting the Penumbra Labs Discord server,
@@ -117,7 +126,7 @@ impl MessageInfo {
         };
 
         // Get the channel of this message.
-        let guild_channel = match ctx.cache.guild_channel(message.channel_id) {
+        let guild_channel = match ctx.cache.guild_channel(channel_id) {
             Some(guild_channel) => guild_channel,
             None => {
                 // As above, assuming Galileo is targeting the Penumbra Labs Discord server,
@@ -127,12 +136,10 @@ impl MessageInfo {
             }
         };
 
-        let user_id = message.author.id;
-        let user_name = message.author.name.clone();
         Ok(MessageInfo {
-            user_id,
-            user_name,
-            guild_id,
+            user_id: *id,
+            user_name: name.clone(),
+            guild_id: *guild_id,
             guild_channel,
         })
     }
@@ -144,7 +151,7 @@ struct SendHistory {
 }
 
 impl SendHistory {
-    pub fn new() -> Self {
+    fn new() -> Self {
         SendHistory {
             discord_users: VecDeque::new(),
             penumbra_addresses: VecDeque::new(),
@@ -153,7 +160,7 @@ impl SendHistory {
 
     /// Returns whether the given user is rate limited, and if so, when the rate limit will expire along with
     /// the number of times the user has been notified of the rate limit.
-    pub fn is_rate_limited(
+    fn is_rate_limited(
         &mut self,
         user_id: UserId,
         addresses: &[AddressOrAlmost],
@@ -184,7 +191,7 @@ impl SendHistory {
             })
     }
 
-    pub fn record_request(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
+    fn record_request(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
         self.discord_users.push_back((user_id, Instant::now(), 1));
         self.penumbra_addresses
             .extend(addresses.iter().map(|address_or_almost| {
@@ -196,7 +203,7 @@ impl SendHistory {
             }));
     }
 
-    pub fn prune(&mut self, rate_limit: Duration) {
+    fn prune(&mut self, rate_limit: Duration) {
         tracing::trace!("pruning discord user send history");
         while let Some((user, last_fulfilled, _)) = self.discord_users.front() {
             if last_fulfilled.elapsed() >= rate_limit {
@@ -220,7 +227,7 @@ impl SendHistory {
         tracing::trace!("finished pruning penumbra address send history");
     }
 
-    pub fn record_failure(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
+    fn record_failure(&mut self, user_id: UserId, addresses: &[AddressOrAlmost]) {
         // If the request failed, we set the notification count to zero, so that the rate
         // limit will not apply to future requests
         if let Some((_, _, notified)) = self
@@ -254,17 +261,16 @@ impl EventHandler for Handler {
     /// window, then Galileo will respond instructing the user to wait longer.
     async fn message(&self, ctx: Context, message: Message) {
         // Check whether we should proceed.
-        if !self.should_send(ctx.clone(), message.clone()).await {
+        let message_info = MessageInfo::new(&message, &ctx).unwrap();
+        if !self.should_send(&ctx, &message_info).await {
             return;
         }
-
-        let message_info = MessageInfo::new(message.clone(), ctx.clone()).unwrap();
 
         // Prune the send history of all expired rate limit timeouts
         self.send_history.lock().unwrap().prune(self.rate_limit);
 
         // Check if the message contains a penumbra address and create a request for it if so
-        let (response, request) = if let Some(parsed) = { Request::try_new(&message) } {
+        let (response, request) = if let Some(parsed) = Request::try_new(&message) {
             parsed
         } else {
             tracing::trace!("no addresses found in message");
