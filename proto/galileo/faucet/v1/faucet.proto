@@ -1,0 +1,23 @@
+syntax = "proto3";
+package galileo.faucet.v1;
+
+import "penumbra/core/keys/v1/keys.proto";
+import "penumbra/core/txhash/v1/txhash.proto";
+
+// Runs a testnet faucet service.
+service FaucetService {
+  // Sends funds to an address, returning the transaction hash.
+  rpc SendFunds(FaucetRequest) returns (FaucetResponse);
+}
+
+// A request for Galileo to send funds to an address.
+message FaucetRequest {
+  // The address to send funds to.
+  penumbra.core.keys.v1.Address address = 1;
+}
+
+// A response containing the transaction hash.
+message FaucetResponse {
+  // The Sha256 hash of the transaction.
+  penumbra.core.txhash.v1.TransactionId transaction_id = 1;
+}
