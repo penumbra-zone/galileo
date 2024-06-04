@@ -1,12 +1,16 @@
-use std::str::FromStr;
+//! Command-line facilities for running Galileo.
+//!
+//! See [`Opt`].
+
+pub use self::history::gather as gather_history;
 
 use clap::Parser;
 use serenity::model::id::{ChannelId, MessageId};
+use std::str::FromStr;
 
 mod history;
+mod rpc;
 mod serve;
-
-pub use history::gather as gather_history;
 
 #[derive(Debug, Clone, Parser)]
 #[clap(author, version, about)]
