@@ -23,6 +23,7 @@ impl Opt {
     pub async fn exec(self) -> anyhow::Result<()> {
         match self.command {
             Command::Serve(serve) => serve.exec().await,
+            Command::ServeRpc(rpc) => rpc.exec().await,
             Command::History(history) => history.exec().await,
         }
     }
@@ -32,6 +33,8 @@ impl Opt {
 pub enum Command {
     /// Run the bot, listening for Discord messages, dispensing tokens, and replying to users.
     Serve(serve::Serve),
+    /// Run the bot, listening for RPC calls, and responding as appropriate.
+    ServeRpc(rpc::ServeRpc),
     /// Export the history of requests from the channel as CSV to stdout.
     History(history::History),
 }
