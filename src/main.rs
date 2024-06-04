@@ -23,6 +23,9 @@ pub use catchup::Catchup;
 #[cfg(feature = "rpc")]
 pub mod proto;
 
+#[cfg(feature = "rpc")]
+pub mod rpc;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Configuring logging
