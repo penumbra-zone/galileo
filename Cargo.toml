@@ -6,60 +6,60 @@ license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-# this is way too complicated, the features in the penumbra crates need to be fixed
 [features]
+# TODO: this is way too complicated, the features in the penumbra crates need to be fixed
 default = ["parallel"]
 parallel = ["penumbra-wallet/parallel"]
 
 [dependencies]
 # Penumbra dependencies
-penumbra-proto = { path = "../penumbra/crates/proto", features = ["rpc", "box-grpc"] }
-penumbra-asset = { path = "../penumbra/crates/core/asset" }
-penumbra-fee = { path = "../penumbra/crates/core/component/fee" }
-penumbra-keys = { path = "../penumbra/crates/core/keys" }
-penumbra-custody = { path = "../penumbra/crates/custody" }
-penumbra-wallet = { path = "../penumbra/crates/wallet" }
-penumbra-view = { path = "../penumbra/crates/view" }
-penumbra-transaction = { path = "../penumbra/crates/core/transaction", features = [
-    "download-proving-keys",
-] }
-penumbra-txhash = { path = "../penumbra/crates/core/txhash" }
+penumbra-asset                         = { path = "../penumbra/crates/core/asset" }
+penumbra-custody                       = { path = "../penumbra/crates/custody" }
+penumbra-fee                           = { path = "../penumbra/crates/core/component/fee" }
+penumbra-keys                          = { path = "../penumbra/crates/core/keys" }
+penumbra-proto                         = { path = "../penumbra/crates/proto", features = ["rpc", "box-grpc"] }
+penumbra-transaction                   = { path = "../penumbra/crates/core/transaction", features = ["download-proving-keys"] }
+penumbra-txhash                        = { path = "../penumbra/crates/core/txhash" }
+penumbra-view                          = { path = "../penumbra/crates/view" }
+penumbra-wallet                        = { path = "../penumbra/crates/wallet" }
 
 # External dependencies
-tower = { version = "0.4", features = ["balance"] }
-tower-service = { version = "0.3.1" }
-anyhow = "1"
-futures-util = { version = "0.3", default-features = false, features = [
-    "alloc",
-] }
-camino = "1"
-directories = "4.0.1"
-regex = "1"
-pin-project-lite = "0.2.7"
-serenity = { version = "0.11", default-features = false, features = [
-    "client",
+anyhow                                 = "1"
+camino                                 = "1"
+directories                            = "4.0.1"
+regex                                  = "1"
+pin-project-lite                       = "0.2.7"
+async-stream                           = "0.3"
+chrono                                 = { version = "0.4", features = ["serde"] }
+clap                                   = { version = "3", features = ["derive"] }
+csv                                    = "1.2"
+derivative                             = "2"
+futures                                = "0.3"
+futures-util                           = { version = "0.3", default-features = false, features = ["alloc"] }
+humantime                              = "2"
+indexmap                               = "1.8"
+num-traits                             = "0.2"
+rand                                   = "0.8"
+reqwest                                = "0.11"
+serde                                  = "1"
+serde_json                             = "1"
+tokio                                  = { version = "1.25", features = ["full"] }
+toml                                   = "0.7"
+tonic                                  = { version = "0.10", features = ["tls-webpki-roots", "tls"] }
+tower                                  = { version = "0.4", features = ["balance"] }
+tower-service                          = { version = "0.3.1" }
+tracing                                = "0.1"
+tracing-subscriber                     = "0.2"
+url                                    = "2"
+
+[dependencies.serenity]
+version = "0.11"
+default-features = false
+features = [
     "cache",
+    "client",
     "gateway",
-    "rustls_backend",
     "model",
+    "rustls_backend",
     "utils",
-] }
-tracing = "0.1"
-tracing-subscriber = "0.2"
-tokio = { version = "1.25", features = ["full"] }
-humantime = "2"
-clap = { version = "3", features = ["derive"] }
-serde_json = "1"
-futures = "0.3"
-derivative = "2"
-rand = "0.8"
-reqwest = "0.11"
-indexmap = "1.8"
-async-stream = "0.3"
-chrono = { version = "0.4", features = ["serde"] }
-serde = "1"
-csv = "1.2"
-url = "2"
-num-traits = "0.2"
-tonic = { version = "0.10", features = ["tls-webpki-roots", "tls"] }
-toml = "0.7"
+]
