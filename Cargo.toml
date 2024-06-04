@@ -15,6 +15,7 @@ rpc = ["dep:prost"]
 [dependencies]
 # Penumbra dependencies
 penumbra-asset                         = { path = "../penumbra/crates/core/asset" }
+penumbra-auto-https                    = { path = "../penumbra/crates/util/auto-https" }
 penumbra-custody                       = { path = "../penumbra/crates/custody" }
 penumbra-fee                           = { path = "../penumbra/crates/core/component/fee" }
 penumbra-keys                          = { path = "../penumbra/crates/core/keys" }
