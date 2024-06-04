@@ -15,6 +15,7 @@ parallel = ["penumbra-wallet/parallel"]
 # Penumbra dependencies
 penumbra-proto = { path = "../penumbra/crates/proto", features = ["rpc", "box-grpc"] }
 penumbra-asset = { path = "../penumbra/crates/core/asset" }
+penumbra-fee = { path = "../penumbra/crates/core/component/fee" }
 penumbra-keys = { path = "../penumbra/crates/core/keys" }
 penumbra-custody = { path = "../penumbra/crates/custody" }
 penumbra-wallet = { path = "../penumbra/crates/wallet" }

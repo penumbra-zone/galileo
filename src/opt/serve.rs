@@ -27,9 +27,6 @@ use crate::{
 
 #[derive(Debug, Clone, Parser)]
 pub struct Serve {
-    /// The transaction fee for each response (paid in upenumbra).
-    #[structopt(long, default_value = "0")]
-    fee: u64,
     /// Per-user rate limit (e.g. "10m" or "1day").
     #[clap(short, long, default_value = "1day", parse(try_from_str = humantime::parse_duration))]
     rate_limit: Duration,
