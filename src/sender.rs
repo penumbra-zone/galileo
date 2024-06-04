@@ -11,6 +11,8 @@ use penumbra_proto::view::v1::broadcast_transaction_response::Status as Broadcas
 
 use penumbra_asset::Value;
 use penumbra_custody::{AuthorizeRequest, CustodyClient};
+use penumbra_fee::FeeTier;
+use penumbra_fee::GasPrices;
 use penumbra_keys::{Address, FullViewingKey};
 use penumbra_txhash::TransactionId;
 use penumbra_view::ViewClient;
@@ -70,7 +72,19 @@ where
                     "tried to send empty list of values to address"
                 ));
             }
+
             let mut planner = Planner::new(OsRng);
+
+            // Here we hardcode low fees. It'd be nice to override via CLI arg.
+            // Look up GasPrices, because merely calling `set_fee_tier` is not sufficient.
+            let gp: GasPrices = self2
+                .view
+                .gas_prices()
+                .await
+                .expect("failed to look up GasPrices");
+            planner.set_gas_prices(gp);
+            planner.set_fee_tier(FeeTier::Low);
+
             for value in values {
                 planner.output(value, address.clone());
             }
