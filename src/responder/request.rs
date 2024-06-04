@@ -27,6 +27,20 @@ impl Request {
         &self.addresses
     }
 
+    /// Create a new request for this address.
+    ///
+    /// Returns a receiver for the response to this request, as well as the request itself.
+    pub fn new(address: Address) -> (oneshot::Receiver<Response>, Self) {
+        let (tx, rx) = oneshot::channel();
+        let addresses = vec![AddressOrAlmost::Address(Box::new(address))];
+        let req = Self {
+            addresses,
+            response: tx,
+        };
+
+        (rx, req)
+    }
+
     /// Create a new request by scanning the contents of a [`Message`].
     ///
     /// Returns a receiver for the response to this request, as well as the request itself.
