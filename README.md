@@ -22,7 +22,7 @@ See [GH29](https://github.com/penumbra-zone/galileo/issues/29) for details.
 RUST_LOG=galileo=info DISCORD_TOKEN=<YOUR DISCORD TOKEN HERE> cargo run --release serve 100penumbra 1000test_usd
 ```
 
-This will dispense 100 penumbra tokens and 1000 test_usd tokens to each address posted in any server to which the bot is
+This will dispense 100 penumbra tokens and 1000 test\_usd tokens to each address posted in any server to which the bot is
 joined. Note that you must specify the bot's Discord API token using the `DISCORD_TOKEN` environment
 variable in order to authenticate with Discord.
 
