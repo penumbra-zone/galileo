@@ -6,14 +6,12 @@ use std::{
 use futures::{Future, FutureExt};
 use futures_util::Stream;
 use futures_util::TryStreamExt;
-
-use penumbra_proto::view::v1::broadcast_transaction_response::Status as BroadcastStatus;
-
 use penumbra_asset::Value;
 use penumbra_custody::{AuthorizeRequest, CustodyClient};
 use penumbra_fee::FeeTier;
 use penumbra_fee::GasPrices;
 use penumbra_keys::{Address, FullViewingKey};
+use penumbra_proto::view::v1::broadcast_transaction_response::Status as BroadcastStatus;
 use penumbra_txhash::TransactionId;
 use penumbra_view::ViewClient;
 use penumbra_wallet::plan::Planner;
@@ -21,6 +19,8 @@ use pin_project_lite::pin_project;
 use rand::rngs::OsRng;
 use tower::{discover::Change, limit::ConcurrencyLimit};
 use tower_service::Service;
+
+pub mod service;
 
 /// A send request is an [`Address`], and a collection of [`Value`]s to send it.
 pub type SenderRequest = (Address, Vec<Value>);
