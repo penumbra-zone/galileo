@@ -63,6 +63,48 @@ We perform these updates on best-effort basis, so it's OK if the updates lag som
 Ideally we'd automate the process (https://github.com/penumbra-zone/galileo/issues/17),
 but until then, we'll perform it manually, say, every other testnet.
 
+## 🔭 Running as a gRPC service
+
+Galileo can be run as a gRPC service, using the `serve-rpc` command. This endpoint supports
+reflection, and automatic HTTPS.
+
+```sh
+# As galileo, run the RPC service, over plaintext on `localhost:8080`.
+cargo run --release -- serve-rpc --account-count=1 1penumbra
+```
+
+`grpcurl` can be used to inspect what RPCs are available:
+
+```sh
+; grpcurl -plaintext localhost:8080 list
+```
+
+A request that the faucet send funds to your address can be made using `grpcurl`, like so:
+
+```sh
+# Run `pcli` to acquire a wallet address.
+; ADDRESS=$(PCLI_UNLEASH_DANGER=1 pcli view address)
+
+# Call the RPC over plaintext, providing the address:
+; grpcurl -plaintext -d @ localhost:8080 galileo.faucet.v1.FaucetService.SendFunds <<EOM
+{
+    "address": {
+        "alt_bech32m": "$ADDRESS"
+    }
+}
+EOM
+```
+
+Alternatively, Rust programs use the facilities in `galileo::proto` to construct a client that can
+send requests to the faucet service.
+
+Use `--grpc-auto-https` to configure an HTTPS domain, provisioning certificates via LetsEncrypt.
+When configuring TLS certificates, it may be wise to use the `--acme-staging` option, to prevent
+being rate-limited by the LetsEncrypt API.
+
+❗ **NOTE:** be careful not to expose this RPC on the public internet without proper
+authentication.
+
 ## Re-deploying after a testnet release
 When we deploy a new testnet, we must bounce Galileo to keep the faucet working.
 The steps are:
