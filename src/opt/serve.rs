@@ -75,34 +75,8 @@ impl Serve {
 
         let discord_token = env::var("DISCORD_TOKEN")?;
 
-        // Configure custody for Penumbra wallet key material.
-        // Look up the path to the view state file per platform, creating the directory if needed
-        let data_dir = self.data_dir.clone().unwrap_or_else(|| {
-            ProjectDirs::from("zone", "penumbra", "pcli")
-                .expect("can access penumbra project dir")
-                .data_dir()
-                .to_owned()
-        });
-        std::fs::create_dir_all(&data_dir).context("can create data dir")?;
-        tracing::debug!(?data_dir, "loading custody key material");
+        let d = self.senders_iter().await.map(SenderSet::new)?;
 
-        let (custody, fvk) = Self::initialize_custody_service(&data_dir)?;
-        let view = Self::initialize_view_service(&self.node, &data_dir, &fvk).await?;
-
-        // Instantiate a sender for each account index.
-        let mut senders = vec![];
-        for account_id in 0..self.account_count {
-            let sender = Sender::new(account_id, fvk.clone(), view.clone(), custody.clone());
-            senders.push(sender);
-        }
-
-        let d = SenderSet::new(
-            senders
-                .into_iter()
-                .enumerate()
-                .map(|(k, v)| (k as u32, v))
-                .collect(),
-        );
         let lb = lb::p2c::Balance::new(load::PendingRequestsDiscover::new(
             d,
             load::CompleteOnResponse::default(),
@@ -142,6 +116,50 @@ impl Serve {
                 Err(anyhow::anyhow!("cancellation received"))
             }
         }
+    }
+
+    /// Returns an [`Iterator`] that will emit a [`Sender`] for each account index.
+    ///
+    /// This initializes a custody server and a view server that the senders will use to create and
+    /// authorize spends.
+    async fn senders_iter(
+        &self,
+    ) -> anyhow::Result<
+        impl Iterator<
+            Item = (
+                u32, // the account id
+                ConcurrencyLimit<
+                    Sender<
+                        // a rate-limited sender
+                        impl ViewClient + Clone + 'static,
+                        impl CustodyClient + Clone + 'static,
+                    >,
+                >,
+            ),
+        >,
+    > {
+        // Configure custody for Penumbra wallet key material.
+        // Look up the path to the view state file per platform, creating the directory if needed
+        let data_dir = self.data_dir.clone().unwrap_or_else(|| {
+            ProjectDirs::from("zone", "penumbra", "pcli")
+                .expect("can access penumbra project dir")
+                .data_dir()
+                .to_owned()
+        });
+        std::fs::create_dir_all(&data_dir).context("can create data dir")?;
+        tracing::debug!(?data_dir, "loading custody key material");
+
+        // Initialize a custody service client and a view service client for the senders.
+        let (custody, fvk) = Self::initialize_custody_service(&data_dir)?;
+        let view = Self::initialize_view_service(&self.node, &data_dir, &fvk).await?;
+
+        let make_sender = move |id| {
+            let sender = Sender::new(id, fvk.clone(), view.clone(), custody.clone());
+            (id, sender)
+        };
+
+        // Instantiate a sender for each account index.
+        Ok((0..self.account_count).map(make_sender))
     }
 
     /// Initializes a custody client, to request spend authorization.

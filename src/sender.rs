@@ -164,8 +164,13 @@ where
 
 impl<S> SenderSet<S> {
     /// Constructs a new sender set.
-    pub fn new(services: Vec<(Key, S)>) -> Self {
-        Self { services }
+    pub fn new<I>(services: I) -> Self
+    where
+        I: IntoIterator<Item = (Key, S)>,
+    {
+        Self {
+            services: services.into_iter().collect(),
+        }
     }
 }
 
