@@ -71,7 +71,7 @@ impl Serve {
 
         // Configure custody for Penumbra wallet key material.
         // Look up the path to the view state file per platform, creating the directory if needed
-        let data_dir = self.data_dir.unwrap_or_else(|| {
+        let data_dir = self.data_dir.clone().unwrap_or_else(|| {
             ProjectDirs::from("zone", "penumbra", "pcli")
                 .expect("can access penumbra project dir")
                 .data_dir()
@@ -136,30 +136,18 @@ impl Serve {
         let service = ConcurrencyLimit::new(lb, self.account_count.try_into().unwrap());
 
         // Make a worker to handle the address queue
-        let (send_requests, responder) = Responder::new(service, self.max_addresses, self.values);
+        let (send_requests, responder) =
+            Responder::new(service, self.max_addresses, self.values.clone());
 
-        // Create a watcher for Discord messages, which will manage spends and replies.
-        let handler = Handler::new(self.rate_limit, self.reply_limit, self.dry_run);
-
-        tracing::debug!("configuring discord client");
-        // Make a new client using a token set by an environment variable, with our handlers
-        let mut discord_client = serenity::Client::builder(
-            &discord_token,
-            GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT,
-        )
-        .event_handler(handler)
-        .await?;
-
-        // Put the sending end of the address queue into the global TypeMap
-        discord_client
-            .data
-            .write()
-            .await
-            .insert::<RequestQueue>(send_requests.clone());
+        // Make a worker to run the discord client
+        let mut discord_client = self
+            .discord_worker(discord_token, send_requests.clone())
+            .await?;
+        let http = discord_client.cache_and_http.http.clone();
+        let discord = tokio::spawn(async move { discord_client.start().await });
 
         // Make a separate catch-up worker for each catch-up task, and collect their results (first
         // to fail kills the bot)
-        let http = discord_client.cache_and_http.http.clone();
         let catch_up = tokio::spawn(Self::catch_up_worker(
             self.catch_up_after,
             self.catch_up_batch_size,
@@ -171,8 +159,7 @@ impl Serve {
 
         // Start the client and the two workers
         tokio::select! {
-            result = tokio::spawn(async move { discord_client.start().await }) =>
-                result.unwrap().context("error in discord client service"),
+            result = discord => result.unwrap().context("error in discord client service"),
             result = tokio::spawn(async move { responder.run(cancel_tx).await }) =>
                 result.unwrap().context("error in responder service"),
             result = catch_up => result.context("error in catchup service")?,
@@ -181,6 +168,44 @@ impl Serve {
                 Err(anyhow::anyhow!("cancellation received"))
             }
         }
+    }
+
+    /// Configures a new discord [`Client`][serenity::Client].
+    ///
+    /// This will configure a [`Handler`] to handle events, and will send requests for funds
+    /// that it sees to the provided [`mpsc`] channel.
+    async fn discord_worker(
+        &self,
+        token: impl AsRef<str>,
+        request_tx: mpsc::Sender<crate::responder::Request>,
+    ) -> anyhow::Result<serenity::Client> {
+        let Self {
+            rate_limit,
+            reply_limit,
+            dry_run,
+            ..
+        } = *self;
+
+        // Create a watcher for Discord messages, which will manage spends and replies.
+        let handler = Handler::new(rate_limit, reply_limit, dry_run);
+
+        tracing::debug!("configuring discord client");
+        // Make a new client using a token set by an environment variable, with our handlers
+        let discord_client = serenity::Client::builder(
+            &token,
+            GatewayIntents::non_privileged() | GatewayIntents::MESSAGE_CONTENT,
+        )
+        .event_handler(handler)
+        .await?;
+
+        // Put the sending end of the address queue into the global TypeMap
+        discord_client
+            .data
+            .write()
+            .await
+            .insert::<RequestQueue>(request_tx);
+
+        Ok(discord_client)
     }
 
     async fn catch_up_worker(
