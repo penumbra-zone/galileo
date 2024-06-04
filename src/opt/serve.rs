@@ -5,7 +5,7 @@ use futures::stream::FuturesUnordered;
 use futures_util::{stream::StreamExt, stream::TryStreamExt};
 use num_traits::identities::Zero;
 use penumbra_asset::Value;
-use penumbra_custody::soft_kms::SoftKms;
+use penumbra_custody::{soft_kms::SoftKms, CustodyClient};
 use penumbra_keys::FullViewingKey;
 use penumbra_proto::{
     custody::v1::{
@@ -86,13 +86,7 @@ impl Serve {
         std::fs::create_dir_all(&data_dir).context("can create data dir")?;
         tracing::debug!(?data_dir, "loading custody key material");
 
-        let pcli_config_file = data_dir.clone().join("config.toml");
-        let wallet = Wallet::load(pcli_config_file)
-            .context("failed to load wallet from local custody file")?;
-        let soft_kms = SoftKms::new(wallet.spend_key.clone().into());
-        let custody = CustodyServiceClient::new(CustodyServiceServer::new(soft_kms));
-        let fvk = wallet.spend_key.full_viewing_key().clone();
-
+        let (custody, fvk) = Self::initialize_custody_service(&data_dir)?;
         let view = Self::initialize_view_service(&self.node, &data_dir, &fvk).await?;
 
         // Instantiate a sender for each account index.
@@ -148,6 +142,19 @@ impl Serve {
                 Err(anyhow::anyhow!("cancellation received"))
             }
         }
+    }
+
+    /// Initializes a custody client, to request spend authorization.
+    fn initialize_custody_service(
+        data_dir: &Path,
+    ) -> anyhow::Result<(impl CustodyClient + Clone + Send + 'static, FullViewingKey)> {
+        let pcli_config_file = data_dir.join("config.toml");
+        let wallet = Wallet::load(pcli_config_file)
+            .context("failed to load wallet from local custody file")?;
+        let soft_kms = SoftKms::new(wallet.spend_key.clone().into());
+        let custody = CustodyServiceClient::new(CustodyServiceServer::new(soft_kms));
+        let fvk = wallet.spend_key.full_viewing_key().clone();
+        Ok((custody, fvk))
     }
 
     // Initializes a view client, to scan the Penumbra chain.
