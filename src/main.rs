@@ -20,6 +20,9 @@ pub use wallet::Wallet;
 mod catchup;
 pub use catchup::Catchup;
 
+#[cfg(feature = "rpc")]
+pub mod proto;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Configuring logging
