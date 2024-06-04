@@ -46,6 +46,9 @@ jobs:
       - name: Move penumbra repo to relative path
         run: mv penumbra-repo ../penumbra
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -75,6 +78,9 @@ jobs:
       - name: Move penumbra repo to relative path
         run: mv penumbra-repo ../penumbra
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -101,6 +107,9 @@ jobs:
 
       - name: Move penumbra repo to relative path
         run: mv penumbra-repo ../penumbra
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
