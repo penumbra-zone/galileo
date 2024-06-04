@@ -71,6 +71,8 @@ pub struct Serve {
 
 impl Serve {
     /// Run the bot, listening for relevant messages, and responding as appropriate.
+    ///
+    /// This function should never return, unless an error of some kind is encountered.
     pub async fn exec(self) -> anyhow::Result<()> {
         self.preflight_checks()
             .await
@@ -82,6 +84,8 @@ impl Serve {
         let service = self.senders_service().await?;
         let (send_requests, responder) =
             Responder::new(service, self.max_addresses, self.values.clone());
+        let (cancel_tx, mut cancel_rx) = mpsc::channel(1);
+        let responder = tokio::spawn(async move { responder.run(cancel_tx).await });
 
         // Make a worker to run the discord client
         let mut discord_client = self
@@ -99,18 +103,12 @@ impl Serve {
             send_requests,
         ));
 
-        let (cancel_tx, mut cancel_rx) = mpsc::channel(1);
-
-        // Start the client and the two workers
+        // Start the client and the three workers, listening for a cancellation event.
         tokio::select! {
+            result = responder => result.unwrap().context("error in responder service"),
             result = discord => result.unwrap().context("error in discord client service"),
-            result = tokio::spawn(async move { responder.run(cancel_tx).await }) =>
-                result.unwrap().context("error in responder service"),
             result = catch_up => result.context("error in catchup service")?,
-            _ = cancel_rx.recv() => {
-                // Cancellation received
-                Err(anyhow::anyhow!("cancellation received"))
-            }
+            _ = cancel_rx.recv() => Err(anyhow::anyhow!("cancellation received")),
         }
     }
 
