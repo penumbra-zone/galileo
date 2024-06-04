@@ -8,8 +8,9 @@ license = "MIT OR Apache-2.0"
 
 [features]
 # TODO: this is way too complicated, the features in the penumbra crates need to be fixed
-default = ["parallel"]
+default = ["parallel", "rpc"]
 parallel = ["penumbra-wallet/parallel"]
+rpc = ["dep:prost"]
 
 [dependencies]
 # Penumbra dependencies
@@ -39,6 +40,7 @@ futures-util                           = { version = "0.3", default-features = f
 humantime                              = "2"
 indexmap                               = "1.8"
 num-traits                             = "0.2"
+prost                                  = { version = "0.12.3", optional = true }
 rand                                   = "0.8"
 reqwest                                = "0.11"
 serde                                  = "1"
