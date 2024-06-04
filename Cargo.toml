@@ -51,6 +51,8 @@ tap                                    = "1"
 tokio                                  = { version = "1.25", features = ["full"] }
 toml                                   = "0.7"
 tonic                                  = { version = "0.10", features = ["tls-webpki-roots", "tls"] }
+tonic-reflection                       = "0.10.0"
+tonic-web                              = "0.10.0"
 tower                                  = { version = "0.4", features = ["balance"] }
 tower-http                             = { version = "0.4" }
 tower-service                          = { version = "0.3.1" }
