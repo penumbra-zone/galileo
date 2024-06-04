@@ -27,6 +27,7 @@ penumbra-wallet                        = { path = "../penumbra/crates/wallet" }
 
 # External dependencies
 anyhow                                 = "1"
+axum-server                            = { version = "0.4.7" }
 camino                                 = "1"
 directories                            = "4.0.1"
 regex                                  = "1"
