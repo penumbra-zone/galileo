@@ -13,8 +13,8 @@ use penumbra_proto::{
     view::v1::{view_service_client::ViewServiceClient, view_service_server::ViewServiceServer},
 };
 use penumbra_view::{ViewClient, ViewServer};
-use serenity::prelude::GatewayIntents;
-use std::{env, path::PathBuf, time::Duration};
+use serenity::{http::Http, prelude::GatewayIntents};
+use std::{env, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use tower::limit::concurrency::ConcurrencyLimit;
 use tower::{balance as lb, load};
@@ -160,37 +160,12 @@ impl Serve {
         // Make a separate catch-up worker for each catch-up task, and collect their results (first
         // to fail kills the bot)
         let http = discord_client.cache_and_http.http.clone();
-        let catch_up = tokio::spawn(async move {
-            let mut catch_ups: FuturesUnordered<_> = self
-                .catch_up_after
-                .into_iter()
-                .map(
-                    |ChannelIdAndMessageId {
-                         channel_id,
-                         message_id,
-                     }| {
-                        let catch_up = Catchup::new(
-                            channel_id,
-                            self.catch_up_batch_size,
-                            http.clone(),
-                            send_requests.clone(),
-                        );
-                        tokio::spawn(catch_up.run(message_id))
-                    },
-                )
-                .collect();
-
-            // By default, `--catch-up` is empty, so this logic won't run.
-            if !catch_ups.is_empty() {
-                tracing::debug!("attempting to catch-up on indicated channels");
-            }
-            while let Some(result) = catch_ups.next().await {
-                result??;
-            }
-
-            // Wait forever
-            std::future::pending().await
-        });
+        let catch_up = tokio::spawn(Self::catch_up_worker(
+            self.catch_up_after,
+            self.catch_up_batch_size,
+            http,
+            send_requests,
+        ));
 
         let (cancel_tx, mut cancel_rx) = mpsc::channel(1);
 
@@ -207,6 +182,43 @@ impl Serve {
             }
         }
     }
+
+    async fn catch_up_worker(
+        catch_up_after: Vec<ChannelIdAndMessageId>,
+        catch_up_batch_size: usize,
+        http: Arc<Http>,
+        send_requests: mpsc::Sender<crate::responder::Request>,
+    ) -> Result<(), anyhow::Error> {
+        let mut catch_ups: FuturesUnordered<_> = catch_up_after
+            .into_iter()
+            .map(
+                |ChannelIdAndMessageId {
+                     channel_id,
+                     message_id,
+                 }| {
+                    let catch_up = Catchup::new(
+                        channel_id,
+                        catch_up_batch_size,
+                        http.clone(),
+                        send_requests.clone(),
+                    );
+                    tokio::spawn(catch_up.run(message_id))
+                },
+            )
+            .collect();
+
+        // By default, `--catch-up` is empty, so this logic won't run.
+        if !catch_ups.is_empty() {
+            tracing::debug!("attempting to catch-up on indicated channels");
+        }
+        while let Some(result) = catch_ups.next().await {
+            result??;
+        }
+
+        // Wait forever
+        std::future::pending().await
+    }
+
     /// Perform sanity checks on CLI args prior to running.
     async fn preflight_checks(&self) -> anyhow::Result<()> {
         if self.dry_run {
