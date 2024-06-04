@@ -22,6 +22,9 @@ use rand::rngs::OsRng;
 use tower::{discover::Change, limit::ConcurrencyLimit};
 use tower_service::Service;
 
+/// A send request is an [`Address`], and a collection of [`Value`]s to send it.
+pub type SenderRequest = (Address, Vec<Value>);
+
 /// The `Sender` maps `(Address, Vec<Value>)` send requests to `[u8; 32]` transaction hashes of sent funds.
 #[derive(Clone)]
 pub struct Sender<V, C>
@@ -35,11 +38,27 @@ where
     account: u32,
 }
 
+pin_project! {
+    /// A set of [`Sender`]s.
+    pub struct SenderSet<S> {
+        services: Vec<(Key, S)>,
+    }
+}
+
+/// A key for a sender in a [`SenderSet`].
+type Key = u32;
+
+// === impl Sender ===
+
 impl<V, C> Sender<V, C>
 where
     V: ViewClient + Clone + Send + 'static,
     C: CustodyClient + Clone + Send + 'static,
 {
+    /// Constructs a new sender.
+    ///
+    /// The value returned by this function is implicitly wrapped in a concurrency limiter, so that
+    /// this sender may only handle one request at a time.
     pub fn new(account: u32, fvk: FullViewingKey, view: V, custody: C) -> ConcurrencyLimit<Self> {
         tower::ServiceBuilder::new()
             .concurrency_limit(1)
@@ -52,7 +71,7 @@ where
     }
 }
 
-impl<V, C> tower::Service<(Address, Vec<Value>)> for Sender<V, C>
+impl<V, C> tower::Service<SenderRequest> for Sender<V, C>
 where
     V: ViewClient + Clone + Send + 'static,
     C: CustodyClient + Clone + Send + 'static,
@@ -62,11 +81,10 @@ where
     type Future =
         Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + 'static>>;
 
-    fn call(&mut self, req: (Address, Vec<Value>)) -> Self::Future {
+    fn call(&mut self, (address, values): SenderRequest) -> Self::Future {
         let mut self2 = self.clone();
         async move {
             // 1. plan the transaction.
-            let (address, values) = req;
             if values.is_empty() {
                 return Err(anyhow::anyhow!(
                     "tried to send empty list of values to address"
@@ -142,15 +160,10 @@ where
     }
 }
 
-type Key = u32;
-
-pin_project! {
-pub struct SenderSet<S> {
-    services: Vec<(Key, S)>,
-}
-}
+// === impl SenderSet ===
 
 impl<S> SenderSet<S> {
+    /// Constructs a new sender set.
     pub fn new(services: Vec<(Key, S)>) -> Self {
         Self { services }
     }
@@ -158,7 +171,7 @@ impl<S> SenderSet<S> {
 
 impl<S> Stream for SenderSet<S>
 where
-    S: Service<(Address, Vec<Value>), Response = TransactionId, Error = anyhow::Error>,
+    S: Service<SenderRequest, Response = TransactionId, Error = anyhow::Error>,
 {
     type Item = Result<Change<Key, S>, anyhow::Error>;
 
