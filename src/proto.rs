@@ -1,5 +1,14 @@
 //! Protobuf definitions for Galileo.
 
+/// The file descriptor set.
+///
+/// See ["Accessing the `protoc` `FileDescriptorSet`"][prost-docs] for more info.
+///
+/// [prost-docs]: https://docs.rs/prost/latest/prost/#accessing-the-protoc-filedescriptorset
+//
+//  NB: Using the "no_lfs" suffix prevents matching a catch-all LFS rule.
+pub const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!("proto/gen/proto_descriptor.bin.no_lfs");
+
 pub use self::galileo::*;
 mod galileo {
     pub mod faucet {
