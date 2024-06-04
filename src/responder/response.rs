@@ -8,15 +8,15 @@ use serenity::{client::Cache, model::id::GuildId};
 #[derive(Debug, Clone)]
 pub struct Response {
     /// The addresses that were successfully dispensed tokens.
-    pub(super) succeeded: Vec<(Address, TransactionId)>,
+    pub(crate) succeeded: Vec<(Address, TransactionId)>,
     /// The addresses that failed to be dispensed tokens, accompanied by a string describing the
     /// error.
-    pub(super) failed: Vec<(Address, String)>,
+    pub(crate) failed: Vec<(Address, String)>,
     /// The addresses that couldn't be parsed.
-    pub(super) unparsed: Vec<String>,
+    pub(crate) unparsed: Vec<String>,
     /// The addresses that were limited from being dispensed tokens because only a certain number
     /// are permitted to be given tokens per message.
-    pub(super) remaining: Vec<Address>,
+    pub(crate) remaining: Vec<Address>,
 }
 
 impl Response {
