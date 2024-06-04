@@ -14,8 +14,7 @@ use tower::limit::ConcurrencyLimit;
 use tower::load::PendingRequestsDiscover;
 use tower::ServiceExt;
 
-use crate::sender::SenderSet;
-use crate::Sender;
+use crate::sender::{Sender, SenderRequest, SenderSet};
 
 mod request;
 pub(crate) use request::AddressOrAlmost;
@@ -42,10 +41,10 @@ where
         ConcurrencyLimit<
             Balance<
                 PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
-                (Address, Vec<Value>),
+                SenderRequest,
             >,
         >,
-        (Address, Vec<Value>),
+        SenderRequest,
     >,
 }
 
@@ -67,7 +66,7 @@ where
         senders: ConcurrencyLimit<
             Balance<
                 PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
-                (Address, Vec<Value>),
+                SenderRequest,
             >,
         >,
         max_addresses: usize,
@@ -125,10 +124,10 @@ async fn dispense<V, C>(
         ConcurrencyLimit<
             Balance<
                 PendingRequestsDiscover<SenderSet<ConcurrencyLimit<Sender<V, C>>>>,
-                (Address, Vec<Value>),
+                SenderRequest,
             >,
         >,
-        (Address, Vec<Value>),
+        SenderRequest,
     >,
 ) -> anyhow::Result<Response>
 where
