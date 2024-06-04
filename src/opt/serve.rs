@@ -22,13 +22,16 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
-use tower::limit::concurrency::ConcurrencyLimit;
-use tower::{balance as lb, load};
+use tower::{
+    balance::p2c::Balance, limit::concurrency::ConcurrencyLimit, load::PendingRequestsDiscover,
+};
 use url::Url;
 
 use crate::{
-    opt::ChannelIdAndMessageId, responder::RequestQueue, sender::SenderSet, Catchup, Handler,
-    Responder, Sender, Wallet,
+    opt::ChannelIdAndMessageId,
+    responder::RequestQueue,
+    sender::{SenderRequest, SenderSet},
+    Catchup, Handler, Responder, Sender, Wallet,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -75,15 +78,8 @@ impl Serve {
 
         let discord_token = env::var("DISCORD_TOKEN")?;
 
-        let d = self.senders_iter().await.map(SenderSet::new)?;
-
-        let lb = lb::p2c::Balance::new(load::PendingRequestsDiscover::new(
-            d,
-            load::CompleteOnResponse::default(),
-        ));
-        let service = ConcurrencyLimit::new(lb, self.account_count.try_into().unwrap());
-
         // Make a worker to handle the address queue
+        let service = self.senders_service().await?;
         let (send_requests, responder) =
             Responder::new(service, self.max_addresses, self.values.clone());
 
@@ -116,6 +112,46 @@ impl Serve {
                 Err(anyhow::anyhow!("cancellation received"))
             }
         }
+    }
+
+    /// Constructs a [`tower::Service`] of [`Sender`]s mapping requests to transaction hashes.
+    /* TODO(kate): the responder constructor hard-codes this return type. fix it later. */
+    async fn senders_service(
+        &self,
+    ) -> anyhow::Result<
+        ConcurrencyLimit<
+            Balance<
+                PendingRequestsDiscover<
+                    SenderSet<
+                        ConcurrencyLimit<
+                            Sender<
+                                impl ViewClient + Clone + 'static,
+                                impl CustodyClient + Clone + 'static,
+                            >,
+                        >,
+                    >,
+                >,
+                SenderRequest,
+            >,
+        >,
+    > {
+        // Create a sender set, with one sender for each account.
+        let d = self.senders_iter().await.map(SenderSet::new)?;
+
+        // Distribute requests across the senders.
+        let lb = Balance::new(PendingRequestsDiscover::new(
+            d,
+            tower::load::CompleteOnResponse::default(),
+        ));
+
+        // Limit the concurrent requests to 1-per-account.
+        let account_count = self
+            .account_count
+            .try_into()
+            .expect("number of accouts < u32::MAX");
+        let service = ConcurrencyLimit::new(lb, account_count);
+
+        Ok(service)
     }
 
     /// Returns an [`Iterator`] that will emit a [`Sender`] for each account index.
