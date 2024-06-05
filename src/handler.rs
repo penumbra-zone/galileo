@@ -261,7 +261,15 @@ impl EventHandler for Handler {
     /// window, then Galileo will respond instructing the user to wait longer.
     async fn message(&self, ctx: Context, message: Message) {
         // Check whether we should proceed.
-        let message_info = MessageInfo::new(&message, &ctx).unwrap();
+        let message_info = match MessageInfo::new(&message, &ctx) {
+            Ok(m) => m,
+            Err(e) => {
+                // We can't return an error, but we also can't proceed, so log the error
+                // and bare-return to bail out.
+                tracing::error!(%e, "failed to get message info for message");
+                return;
+            }
+        };
         if !self.should_send(&ctx, &message_info).await {
             return;
         }
