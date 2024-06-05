@@ -265,7 +265,7 @@ impl EventHandler for Handler {
             Ok(m) => m,
             Err(e) => {
                 // We can't return an error, but we also can't proceed, so log the error
-                // and bare-return to bail out.
+                // and early-return to bail out.
                 tracing::error!(%e, "failed to get message info for message");
                 return;
             }

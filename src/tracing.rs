@@ -1,8 +1,12 @@
+use std::io::IsTerminal as _;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
 /// Initializes a tracing subscriber.
 pub(crate) fn init_subscriber() -> anyhow::Result<()> {
-    let fmt_layer = tracing_subscriber::fmt::layer().with_target(true);
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_target(true)
+        .with_ansi(std::io::stderr().is_terminal())
+        .with_writer(std::io::stderr);
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))?
         // Force disabling of r1cs log messages, otherwise the `ark-groth16` crate
